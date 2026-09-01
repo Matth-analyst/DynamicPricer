@@ -96,11 +96,20 @@ contre 4,8 millions. C'est numpy qui ne sait pas exprimer cela, faute de solveur
 bloc-tridiagonal par lot ; Rust est le véhicule, la structure est le levier. `rayon`
 répartit ensuite les instances sur les cœurs.
 
-| balayage EDP | Python | Rust | |
+Deux noyaux sont pris en charge, et il a fallu les deux : le balayage de prix (EDP),
+puis la **recherche de seuil commun** des stratégies S et SB. Le second était en réalité
+le poste dominant du solveur complet — à `N = 4`, une fois le balayage accéléré, il
+représentait encore **99 %** du temps de `solve_all`. Il évalue chaque niveau candidat
+pour chaque vecteur de prix, soit ~2,6 millions d'évaluations au pas 0.05.
+
+| | Python | Rust | |
 |---|---|---|---|
-| `N=2`, pas 0.01, `ε=0.8` (9 801) | 47,2 s | 0,8 s | **×59** |
-| `N=4`, pas 0.1 (6 561) | 35,4 s | 1,2 s | **×29** |
-| `N=4`, pas 0.05 (130 321) | ~12 min | 25,0 s | **×28** |
+| balayage EDP, `N=2`, pas 0.01, `ε=0.8` | 47,2 s | 0,8 s | **×59** |
+| balayage EDP, `N=4`, pas 0.1 | 35,4 s | 1,2 s | **×29** |
+| seuil commun SB, `N=4`, pas 0.1 | 89,7 s | 3,8 s | **×23** |
+| `solve_all`, `N=4`, pas 0.1 | 90,6 s | 5,5 s | **×16** |
+| `solve_all`, `N=4`, pas 0.05 | ~40 min | 104 s | **×23** |
+| validation complète contre le papier | 135 s | 16,5 s | **×8** |
 
 À l'optimum, les deux moteurs donnent le même gain, la même politique et le même prix,
 et les quatre instances de référence retrouvent exactement les Tables 4 et 5.

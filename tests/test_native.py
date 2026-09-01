@@ -114,3 +114,46 @@ def test_edp_still_reproduces_the_paper_through_the_native_path():
     sol = solve_edp(pb)
     assert sol.base_stock == ref.TABLE_4[0.6]["edp"]
     assert tuple(round(float(p), 2) for p in sol.prices) == ref.TABLE_5[0.6]["edp"]
+
+
+def test_common_level_search_matches_python():
+    """Stratégies S et SB : le seuil commun natif doit reproduire l'évaluation Python.
+
+    C'est le poste le plus lourd du solveur, donc celui où une divergence coûterait le
+    plus cher à détecter tard.
+    """
+    from mdp import average_profit
+
+    pb = Problem.two_env(eps=0.6, m_stock=60, price_step=0.05)
+    lam = _demand_from_prices(pb, _price_vector_grid(pb)).T
+    bound = 14
+    levels = np.arange(0, bound + 1)
+
+    g_rust, lvl_rust = native.search_common_level(pb, lam, bound)
+    gains = np.stack([average_profit(pb, lam, np.full(pb.N, s)) for s in levels])
+    g_py = gains.max(axis=0)
+
+    assert g_rust == pytest.approx(g_py, abs=1e-12)
+    # Le niveau retenu doit atteindre ce maximum, y compris en cas d'égalité.
+    achieved = gains[lvl_rust, np.arange(lam.shape[0])]
+    assert achieved == pytest.approx(g_py, abs=1e-12)
+
+
+@pytest.mark.parametrize("name", ["s", "sb"])
+def test_constrained_strategies_agree_end_to_end(name):
+    """Bout en bout : S et SB doivent donner le même gain par les deux chemins."""
+    import strategies
+
+    pb = Problem.two_env(eps=0.6, m_stock=60, price_step=0.05)
+    native_sol = strategies.SOLVERS[name](pb)
+
+    original = native.HAS_COMMON_LEVEL
+    strategies.native.HAS_COMMON_LEVEL = False
+    try:
+        python_sol = strategies.SOLVERS[name](pb)
+    finally:
+        strategies.native.HAS_COMMON_LEVEL = original
+
+    assert native_sol.g == pytest.approx(python_sol.g, abs=1e-12)
+    assert native_sol.base_stock == python_sol.base_stock
+    assert native_sol.prices == pytest.approx(python_sol.prices)

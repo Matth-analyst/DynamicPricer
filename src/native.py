@@ -24,25 +24,38 @@ _ROOT = Path(__file__).resolve().parents[1] / "rust" / "target"
 _STEM = "dynamicpricer_rust"
 
 
+def _refresh_windows_copy(base: Path) -> None:
+    """Dépose une copie `.pyd` du `.dll` produit par `cargo build`.
+
+    CPython ne charge que les suffixes de `importlib.machinery.EXTENSION_SUFFIXES`,
+    dont `.dll` ne fait pas partie — cette copie évite d'exiger `maturin`.
+
+    Le rafraîchissement a lieu **avant** que le `.pyd` ne soit proposé au chargement :
+    dans l'autre ordre, une copie périmée serait chargée en priorité et masquerait
+    silencieusement une recompilation. La copie peut échouer si un processus a déjà le
+    module chargé (Windows verrouille le fichier) ; on garde alors l'existant, faute de
+    mieux, plutôt que de perdre le moteur.
+    """
+    dll = base / f"{_STEM}.dll"
+    if not dll.exists():
+        return
+    pyd = base / f"{_STEM}.pyd"
+    if pyd.exists() and pyd.stat().st_mtime >= dll.stat().st_mtime:
+        return
+    try:
+        shutil.copy2(dll, pyd)
+    except OSError:
+        pass
+
+
 def _candidates():
     """Artefacts possibles, release d'abord — un build debug est 10 à 50 fois plus lent."""
     for profile in ("release", "debug"):
         base = _ROOT / profile
+        _refresh_windows_copy(base)
         for suffix in (".pyd", ".so", ".dylib"):
             yield base / f"{_STEM}{suffix}"
             yield base / f"lib{_STEM}{suffix}"
-        # `cargo build` produit un `.dll` sous Windows, que CPython refuse de charger :
-        # seuls les suffixes de `importlib.machinery.EXTENSION_SUFFIXES` sont reconnus.
-        # On en dépose une copie `.pyd` à côté plutôt que d'exiger `maturin`.
-        dll = base / f"{_STEM}.dll"
-        if dll.exists():
-            pyd = base / f"{_STEM}.pyd"
-            if not pyd.exists() or pyd.stat().st_mtime < dll.stat().st_mtime:
-                try:
-                    shutil.copy2(dll, pyd)
-                except OSError:
-                    continue
-            yield pyd
 
 
 def _load():
@@ -66,6 +79,9 @@ ENGINE = _load()
 
 #: `True` si le moteur natif est disponible et utilisable.
 AVAILABLE = ENGINE is not None and hasattr(ENGINE, "solve_batch_py")
+
+#: `True` si la recherche de seuil commun (stratégies S et SB) est disponible.
+HAS_COMMON_LEVEL = ENGINE is not None and hasattr(ENGINE, "search_common_level_py")
 
 
 def solve_batch_truncated(pb, lam_n, gamma: float, max_sweeps: int):
@@ -97,3 +113,30 @@ def solve_batch_truncated(pb, lam_n, gamma: float, max_sweeps: int):
     gains = np.asarray(g, dtype=float) * gamma
     base_stock = np.asarray(s, dtype=int).reshape(-1, pb.N).T
     return gains, base_stock
+
+
+def search_common_level(pb, lam, max_level: int):
+    """Meilleur seuil commun par vecteur de prix, délégué au moteur natif.
+
+    `pb` est le problème en **unités réelles** et `lam` la grille `(B, N)` des taux.
+    Renvoie `(gains (B,), niveaux (B,))`. C'est le noyau des stratégies S et SB, dont
+    le base-stock est contraint identique dans tous les environnements.
+    """
+    if not HAS_COMMON_LEVEL:
+        raise RuntimeError("moteur natif indisponible")
+    import numpy as np
+
+    lam = np.ascontiguousarray(lam, dtype=float)
+    g, levels = ENGINE.search_common_level_py(
+        lam.reshape(-1).tolist(),
+        [float(x) for x in pb.Lam],
+        [float(x) for row in pb.Q for x in row],
+        float(pb.mu),
+        float(pb.c),
+        float(pb.h),
+        float(pb.b),
+        int(pb.m_backlog),
+        int(max_level),
+        float(pb.a),
+    )
+    return np.asarray(g, dtype=float), np.asarray(levels, dtype=int)

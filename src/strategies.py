@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import native
 from mdp import average_profit, solve_batch, solve_mdp
 from params import Problem
 
@@ -158,19 +159,30 @@ def _search_common_base_stock(
     bound = _base_stock_search_bound(pb, prices, sweep)
     levels = np.arange(max(pb.x_min, 0), bound + 1)
 
-    gains = np.stack([average_profit(pb, lam, np.full(pb.N, s)) for s in levels])
-    flat = int(np.argmax(gains))
-    i_s, i_p = np.unravel_index(flat, gains.shape)
+    # C'est le poste le plus lourd du solveur complet : un niveau candidat × chaque
+    # vecteur de prix, soit ~2,6 millions d'évaluations à `N=4` au pas 0.05. Le moteur
+    # natif le prend en charge quand il est disponible.
+    if native.HAS_COMMON_LEVEL:
+        best_g, best_level = native.search_common_level(pb, lam, int(bound))
+        i_p = int(np.argmax(best_g))
+        best = float(best_g[i_p])
+        chosen = int(best_level[i_p])
+    else:
+        gains = np.stack([average_profit(pb, lam, np.full(pb.N, s)) for s in levels])
+        flat = int(np.argmax(gains))
+        i_s, i_p = np.unravel_index(flat, gains.shape)
+        best = float(gains[i_s, i_p])
+        chosen = int(levels[i_s])
 
-    if levels[i_s] == bound:
+    if chosen == bound:
         raise ValueError(
             f"Le seuil commun optimal atteint la borne de recherche ({bound}) pour la "
             f"stratégie {name.upper()} : augmenter `_BOUND_MARGIN` ou `m_stock`."
         )
     return Solution(
         strategy=name,
-        g=float(gains[i_s, i_p]),
-        base_stock=(int(levels[i_s]),) * pb.N,
+        g=best,
+        base_stock=(chosen,) * pb.N,
         prices=prices[:, i_p].copy(),
     )
 

@@ -35,8 +35,8 @@ const GAIN_STALL_TOL: f64 = 1e-12;
 /// Paramètres communs à toutes les instances d'un balayage, déjà normalisés.
 struct Ctx {
     n: usize,
-    /// Nombre de niveaux de stock représentés.
-    x_len: usize,
+    /// Nombre de niveaux de stock du problème complet.
+    x_len_full: usize,
     /// Niveau de stock du premier indice (négatif si backlog autorisé).
     x_min: i32,
     lam_pot: Vec<f64>,
@@ -46,14 +46,25 @@ struct Ctx {
     mu: f64,
     c: f64,
     a: f64,
-    /// Coût de détention par niveau de stock, déjà évalué.
-    holding: Vec<f64>,
+    /// Coûts de détention et de pénurie, normalisés.
+    h_n: f64,
+    b_n: f64,
     max_sweeps: usize,
 }
 
 impl Ctx {
     fn level(&self, x: usize) -> i32 {
         self.x_min + x as i32
+    }
+
+    /// Coût de détention du niveau `x` : `h·x` au-dessus de zéro, `b·|x|` en dessous.
+    fn holding(&self, x: usize) -> f64 {
+        let level = self.level(x);
+        if level >= 0 {
+            self.h_n * level as f64
+        } else {
+            self.b_n * (-level) as f64
+        }
     }
 }
 
@@ -111,6 +122,72 @@ fn solve_dense(m: &mut [f64], b: &mut [f64], n: usize, ncols: usize) -> bool {
     true
 }
 
+/// Normalise les paramètres et assemble le contexte partagé.
+///
+/// L'uniformisation est identique à `Problem.normalized()` côté Python : les taux et
+/// les coûts **par unité de temps** (`h`, `b`) sont divisés par Γ, les coûts **par
+/// événement** (`c`) ne le sont pas. Appelée avec des paramètres déjà normalisés, elle
+/// trouve Γ = 1 et se comporte en passage à vide.
+#[allow(clippy::too_many_arguments)]
+fn build_ctx(
+    lam_pot: &[f64],
+    q: &[f64],
+    mu: f64,
+    c: f64,
+    h: f64,
+    b_cost: f64,
+    x_min: i32,
+    x_len_full: usize,
+    a: f64,
+    max_sweeps: usize,
+) -> (Ctx, f64) {
+    let n = lam_pot.len();
+    let mut gamma = mu;
+    for value in lam_pot {
+        gamma += *value;
+    }
+    for (idx, value) in q.iter().enumerate() {
+        if idx / n != idx % n {
+            gamma += *value;
+        }
+    }
+
+    let lam_pot_n: Vec<f64> = lam_pot.iter().map(|v| v / gamma).collect();
+    let q_n: Vec<f64> = q.iter().map(|v| v / gamma).collect();
+    let total_lam: f64 = lam_pot_n.iter().sum();
+    let mut fictitious = vec![0.0; n];
+    for e in 0..n {
+        let mut acc = total_lam - lam_pot_n[e];
+        for i in 0..n {
+            if i == e {
+                continue;
+            }
+            for j in 0..n {
+                if j != i {
+                    acc += q_n[i * n + j];
+                }
+            }
+        }
+        fictitious[e] = acc;
+    }
+
+    let ctx = Ctx {
+        n,
+        x_len_full,
+        x_min,
+        lam_pot: lam_pot_n,
+        q: q_n,
+        fictitious,
+        mu: mu / gamma,
+        c,
+        a,
+        h_n: h / gamma,
+        b_n: b_cost / gamma,
+        max_sweeps,
+    };
+    (ctx, gamma)
+}
+
 /// Évaluation exacte d'une politique base-stock, par élimination bloc-tridiagonale.
 ///
 /// Résout `(I - P) v + g·1 = r` sous la contrainte `v[0] = 0`.
@@ -125,9 +202,8 @@ fn solve_dense(m: &mut [f64], b: &mut [f64], n: usize, ncols: usize) -> bool {
 /// Alors `v = y - g·z` vérifie `v_0 = 0` et les équations de rang `≥ 1`. Le gain se
 /// déduit de l'équation de rang 0, restée inutilisée :
 /// `g = (r_0 - (A y)_0) / (1 - (A z)_0)`.
-fn evaluate(ctx: &Ctx, lam: &[f64], s: &[i32], v_out: &mut [f64]) -> Option<f64> {
+fn evaluate(ctx: &Ctx, x_len: usize, lam: &[f64], s: &[i32], v_out: &mut [f64]) -> Option<f64> {
     let n = ctx.n;
-    let x_len = ctx.x_len;
     let nn = n * n;
 
     // Blocs diagonaux (pleins) et seconds membres, deux colonnes : r puis 1.
@@ -163,7 +239,7 @@ fn evaluate(ctx: &Ctx, lam: &[f64], s: &[i32], v_out: &mut [f64]) -> Option<f64>
                 };
             }
 
-            let mut reward = -ctx.holding[x];
+            let mut reward = -ctx.holding(x);
             if produces {
                 reward -= ctx.mu * ctx.c;
             }
@@ -282,11 +358,11 @@ fn evaluate(ctx: &Ctx, lam: &[f64], s: &[i32], v_out: &mut [f64]) -> Option<f64>
 }
 
 /// Seuils de production relus dans la fonction de valeur : `s_e = min{x : Δv(x,e) ≤ c}`.
-fn base_stock_levels(ctx: &Ctx, v: &[f64], out: &mut [i32]) {
+fn base_stock_levels(ctx: &Ctx, x_len: usize, v: &[f64], out: &mut [i32]) {
     let n = ctx.n;
     for e in 0..n {
         let mut found = false;
-        for x in 0..(ctx.x_len - 1) {
+        for x in 0..(x_len - 1) {
             if v[(x + 1) * n + e] - v[x * n + e] <= ctx.c {
                 out[e] = ctx.level(x);
                 found = true;
@@ -294,7 +370,7 @@ fn base_stock_levels(ctx: &Ctx, v: &[f64], out: &mut [i32]) {
             }
         }
         if !found {
-            out[e] = ctx.level(ctx.x_len - 1);
+            out[e] = ctx.level(x_len - 1);
         }
     }
 }
@@ -305,12 +381,12 @@ fn solve_instance(ctx: &Ctx, lam: &[f64]) -> (f64, Vec<i32>) {
     let mut s = vec![0i32; n];
     let mut s_next = vec![0i32; n];
     let mut s_best = vec![0i32; n];
-    let mut v = vec![0.0; ctx.x_len * n];
+    let mut v = vec![0.0; ctx.x_len_full * n];
     let mut g_best = f64::NEG_INFINITY;
     let mut g_prev = f64::NEG_INFINITY;
 
     for _ in 0..ctx.max_sweeps {
-        let g = match evaluate(ctx, lam, &s, &mut v) {
+        let g = match evaluate(ctx, ctx.x_len_full, lam, &s, &mut v) {
             Some(g) => g,
             None => break,
         };
@@ -324,7 +400,7 @@ fn solve_instance(ctx: &Ctx, lam: &[f64]) -> (f64, Vec<i32>) {
         if g > g_prev {
             g_prev = g;
         }
-        base_stock_levels(ctx, &v, &mut s_next);
+        base_stock_levels(ctx, ctx.x_len_full, &v, &mut s_next);
         if s_next == s || stalled {
             break;
         }
@@ -366,63 +442,10 @@ fn solve_batch_py(
     }
     let batch = lam_grid.len() / n;
 
-    // Uniformisation, identique à `Problem.normalized()` : les taux et les coûts par
-    // unité de temps sont divisés par Γ ; `c` est un coût par événement et ne l'est pas.
-    let mut gamma = mu;
-    for value in &lam_pot {
-        gamma += *value;
-    }
-    for (idx, value) in q.iter().enumerate() {
-        if idx / n != idx % n {
-            gamma += *value;
-        }
-    }
-
-    let lam_pot_n: Vec<f64> = lam_pot.iter().map(|v| v / gamma).collect();
-    let q_n: Vec<f64> = q.iter().map(|v| v / gamma).collect();
-    let total_lam: f64 = lam_pot_n.iter().sum();
-    let mut fictitious = vec![0.0; n];
-    for e in 0..n {
-        let mut acc = total_lam - lam_pot_n[e];
-        for i in 0..n {
-            if i == e {
-                continue;
-            }
-            for j in 0..n {
-                if j != i {
-                    acc += q_n[i * n + j];
-                }
-            }
-        }
-        fictitious[e] = acc;
-    }
-
-    let x_min = -m_backlog;
-    let x_len = (m_stock + m_backlog + 1) as usize;
-    let holding: Vec<f64> = (0..x_len)
-        .map(|x| {
-            let level = x_min + x as i32;
-            if level >= 0 {
-                (h / gamma) * level as f64
-            } else {
-                (b_cost / gamma) * (-level) as f64
-            }
-        })
-        .collect();
-
-    let ctx = Ctx {
-        n,
-        x_len,
-        x_min,
-        lam_pot: lam_pot_n,
-        q: q_n,
-        fictitious,
-        mu: mu / gamma,
-        c,
-        a,
-        holding,
-        max_sweeps,
-    };
+    let (ctx, gamma) = build_ctx(
+        &lam_pot, &q, mu, c, h, b_cost, -m_backlog,
+        (m_stock + m_backlog + 1) as usize, a, max_sweeps,
+    );
 
     let results: Vec<(f64, Vec<i32>)> = (0..batch)
         .into_par_iter()
@@ -449,8 +472,84 @@ fn solve_batch_py(
     Ok((gains, stocks))
 }
 
+
+/// Meilleur **seuil commun** à tous les environnements, pour chaque vecteur de prix.
+///
+/// C'est le noyau des stratégies S et SB : leur base-stock est contraint identique
+/// partout, ce qu'aucune itération sur les politiques ne produit — il faut énumérer
+/// les seuils et évaluer chaque politique. Avec `N = 4` et un pas de 0.05, cela fait
+/// une vingtaine de niveaux pour 130 321 vecteurs de prix, soit ~2,6 millions
+/// d'évaluations : c'est de loin le poste le plus lourd du solveur complet.
+///
+/// Chaque niveau `s` est évalué sur l'espace d'état tronqué à `[x_min, s]` : au-delà
+/// du seuil, les états ne sont jamais visités sous cette politique. Ce n'est donc pas
+/// une approximation, et cela rend les évaluations d'autant plus courtes que le seuil
+/// est bas.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn search_common_level_py(
+    lam_grid: Vec<f64>,
+    lam_pot: Vec<f64>,
+    q: Vec<f64>,
+    mu: f64,
+    c: f64,
+    h: f64,
+    b_cost: f64,
+    m_backlog: i32,
+    max_level: i32,
+    a: f64,
+) -> PyResult<(Vec<f64>, Vec<i32>)> {
+    let n = lam_pot.len();
+    if n == 0 || q.len() != n * n || lam_grid.len() % n != 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dimensions incohérentes",
+        ));
+    }
+    let batch = lam_grid.len() / n;
+    let x_min = -m_backlog;
+    let min_level = x_min.max(0);
+    if max_level < min_level {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "`max_level` inférieur au premier niveau candidat",
+        ));
+    }
+
+    let (ctx, gamma) = build_ctx(&lam_pot, &q, mu, c, h, b_cost, x_min, 1, a, 1);
+
+    let results: Vec<(f64, i32)> = (0..batch)
+        .into_par_iter()
+        .map(|i| {
+            let lam: Vec<f64> = (0..n)
+                .map(|e| (lam_grid[i * n + e] / gamma).clamp(0.0, ctx.lam_pot[e]))
+                .collect();
+            let mut policy = vec![0i32; n];
+            let mut best = (f64::NEG_INFINITY, min_level);
+            let mut v = vec![0.0; ((max_level - x_min + 1) as usize) * n];
+            for level in min_level..=max_level {
+                policy.iter_mut().for_each(|p| *p = level);
+                let x_len = (level - x_min + 1) as usize;
+                if let Some(g) = evaluate(&ctx, x_len, &lam, &policy, &mut v) {
+                    if g > best.0 {
+                        best = (g, level);
+                    }
+                }
+            }
+            best
+        })
+        .collect();
+
+    let mut gains = Vec::with_capacity(batch);
+    let mut levels = Vec::with_capacity(batch);
+    for (g, level) in results {
+        gains.push(g * gamma);
+        levels.push(level);
+    }
+    Ok((gains, levels))
+}
+
 #[pymodule]
 fn dynamicpricer_rust(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_batch_py, m)?)?;
+    m.add_function(wrap_pyfunction!(search_common_level_py, m)?)?;
     Ok(())
 }
