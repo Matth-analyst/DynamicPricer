@@ -221,6 +221,10 @@ with tab3:
     gain_edp = pg["edp"]
     extra_dp = 100 * profit_gain(gains["dp"], gains["edp"])
 
+    # Le seuil de 3 % n'est pas arbitraire : sur l'ensemble du balayage de capacité,
+    # l'écart entre DP et EDP ne dépasse jamais 3,3 % (§5.3.1 du papier, reproduit
+    # dans `notebooks/02_sensitivity.ipynb`). Un seuil plus bas ferait recommander DP
+    # dans des régimes où l'étude conclut précisément l'inverse.
     if gain_edp < 2.0:
         verdict, strategy = "success", "**S — un prix unique**"
         why = (
@@ -228,7 +232,7 @@ with tab3:
             "En dessous de ~2 %, le gain ne couvre pas le coût d'exploitation d'une "
             "politique plus complexe, ni la friction créée côté client."
         )
-    elif extra_dp < 1.5:
+    elif extra_dp < 3.0:
         verdict, strategy = "info", "**EDP — un prix par environnement**"
         why = (
             f"EDP rapporte {gain_edp:.1f} % sur un prix unique, et DP n'y ajoute que "
@@ -237,11 +241,13 @@ with tab3:
             "marginal."
         )
     else:
-        verdict, strategy = "warning", "**DP — prix dépendant du stock**"
+        verdict, strategy = "warning", "**EDP**, mais c'est ici que DP mérite un examen"
         why = (
-            f"DP dépasse EDP de {extra_dp:.1f} %, ce qui est inhabituel : c'est le "
-            "régime où le niveau de stock porte réellement de l'information. À mettre "
-            "en balance avec le coût d'un pilotage en temps réel."
+            f"DP dépasse EDP de {extra_dp:.1f} %, soit le haut de la fourchette observée "
+            "sur l'ensemble des régimes — l'écart ne dépasse jamais 3,3 %. C'est donc le "
+            "domaine où le niveau de stock porte le plus d'information, et le seul où "
+            "le pilotage en temps réel puisse se discuter. À mettre en balance avec son "
+            "coût de mise en œuvre, que le modèle ne facture pas."
         )
 
     getattr(st, verdict)(f"Stratégie recommandée : {strategy}")

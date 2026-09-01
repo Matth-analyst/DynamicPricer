@@ -1,0 +1,373 @@
+<title>Adapter le prix au régime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&family=Literata:opsz,wght@7..72,400;7..72,500&display=swap">
+
+<style>
+  :root {
+    --ink:        #1A1815;
+    --ink-soft:   #4A4640;
+    --ink-faint:  #8A857C;
+    --ground:     #F7F4EF;
+    --panel:      #FFFDF9;
+    --rule:       #DED8CD;
+    --low:        #1F6F6B;
+    --low-wash:   #E2EDEB;
+    --high:       #C2762A;
+    --high-wash:  #F6E9D8;
+    --accent:     var(--low);
+
+    --step--1: clamp(.78rem, .76rem + .1vw, .85rem);
+    --step-0:  clamp(1rem, .96rem + .2vw, 1.12rem);
+    --step-1:  clamp(1.3rem, 1.2rem + .5vw, 1.6rem);
+    --step-2:  clamp(1.8rem, 1.5rem + 1.4vw, 2.7rem);
+    --step-3:  clamp(2.4rem, 1.8rem + 3vw, 4.4rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink:       #F2EEE7;
+      --ink-soft:  #BDB6AA;
+      --ink-faint: #837C71;
+      --ground:    #141614;
+      --panel:     #1C1F1D;
+      --rule:      #333733;
+      --low:       #5FB8B0;
+      --low-wash:  #172A28;
+      --high:      #E0993F;
+      --high-wash: #2C2214;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:       #F2EEE7;
+    --ink-soft:  #BDB6AA;
+    --ink-faint: #837C71;
+    --ground:    #141614;
+    --panel:     #1C1F1D;
+    --rule:      #333733;
+    --low:       #5FB8B0;
+    --low-wash:  #172A28;
+    --high:      #E0993F;
+    --high-wash: #2C2214;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: Literata, Georgia, serif;
+    font-size: var(--step-0);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .rail { position: fixed; left: 0; top: 0; height: 3px; background: var(--accent); width: 0; z-index: 50; transition: width .12s linear; }
+
+  .deck { max-width: 62rem; margin: 0 auto; padding: 0 clamp(1.2rem, 4vw, 3.5rem); }
+
+  section.slide {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.4rem;
+    padding: 5rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  section.slide:last-of-type { border-bottom: 0; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: flex; align-items: baseline; gap: .8rem;
+  }
+  .eyebrow b { color: var(--accent); font-weight: 500; }
+
+  h1, h2 {
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 800;
+    letter-spacing: -.025em;
+    line-height: 1.04;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h1 { font-size: var(--step-3); }
+  h2 { font-size: var(--step-2); }
+  p  { margin: 0; max-width: 60ch; color: var(--ink-soft); }
+  p.lede { font-size: var(--step-1); color: var(--ink); line-height: 1.42; }
+  strong { color: var(--ink); font-weight: 500; }
+
+  .cols { display: grid; gap: clamp(1.2rem, 3vw, 2.4rem); }
+  @media (min-width: 46rem) { .cols.two { grid-template-columns: 1fr 1fr; align-items: start; } }
+
+  figure { margin: 0; }
+  svg { display: block; width: 100%; height: auto; }
+
+  .matrix { width: 100%; border-collapse: collapse; font-family: Archivo, sans-serif; font-size: var(--step--1); }
+  .matrix th, .matrix td { border: 1px solid var(--rule); padding: .75rem .8rem; text-align: left; }
+  .matrix th { font-weight: 500; color: var(--ink-faint); background: var(--panel); text-transform: uppercase; letter-spacing: .07em; }
+  .matrix td b { font-family: Archivo, sans-serif; font-weight: 800; font-size: var(--step-0); display: block; }
+  .matrix td span { color: var(--ink-faint); }
+  .matrix td.void { color: var(--ink-faint); font-style: italic; }
+  .scroller { overflow-x: auto; }
+
+  .bars { display: flex; flex-direction: column; gap: .7rem; font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); }
+  .bar { display: grid; grid-template-columns: 3.6rem 1fr 4rem; align-items: center; gap: .8rem; }
+  .bar .track { background: var(--rule); height: 1.5rem; position: relative; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .bar .fill.muted { background: var(--ink-faint); }
+  .bar .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar .who { font-family: Archivo, sans-serif; font-weight: 700; }
+
+  .stat { display: flex; flex-wrap: wrap; gap: clamp(1.5rem, 5vw, 4rem); }
+  .stat div { border-left: 3px solid var(--accent); padding-left: 1rem; }
+  .stat b {
+    display: block; font-family: Archivo, sans-serif; font-weight: 800;
+    font-size: var(--step-2); letter-spacing: -.03em; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span { font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); color: var(--ink-faint); text-transform: uppercase; letter-spacing: .1em; }
+
+  ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .9rem; }
+  ul.plain li { display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: baseline; color: var(--ink-soft); max-width: 62ch; }
+  ul.plain li::before {
+    content: attr(data-tag);
+    font-family: "IBM Plex Mono", monospace; font-size: var(--step--1);
+    color: var(--accent); letter-spacing: .06em; white-space: nowrap;
+  }
+
+  .verdict { display: grid; gap: 0; border: 1px solid var(--rule); }
+  .verdict div { display: grid; gap: .2rem .9rem; padding: .9rem 1rem; border-bottom: 1px solid var(--rule); }
+  .verdict div:last-child { border-bottom: 0; }
+  @media (min-width: 40rem) { .verdict div { grid-template-columns: 15rem 1fr; align-items: baseline; } }
+  .verdict dt { font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); color: var(--ink-faint); margin: 0; }
+  .verdict dd { margin: 0; color: var(--ink-soft); }
+  .verdict dd b { font-family: Archivo, sans-serif; font-weight: 800; color: var(--accent); }
+
+  .note { font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); color: var(--ink-faint); line-height: 1.55; max-width: 62ch; }
+
+  footer { padding: 4rem 0 6rem; color: var(--ink-faint); font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="rail" id="rail"></div>
+
+<main class="deck">
+
+  <!-- 1 -->
+  <section class="slide">
+    <div class="eyebrow"><b>01</b> <span>Tarification en demande incertaine</span></div>
+    <h1>Adapter le prix au régime,<br>pas au niveau de stock.</h1>
+    <p class="lede">Sur un système de production à capacité limitée, changer de prix quand
+      la saison change rapporte <strong>13,7 %</strong>. Y ajouter un prix recalculé à chaque
+      mouvement de stock n'apporte que <strong>1,7 point</strong> de plus — pour un pilotage
+      en temps réel.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 260" role="img" aria-label="Trajectoire du stock : dents de scie sous un plafond de base-stock, plus bas en régime de demande haute.">
+        <rect x="0" y="0" width="430" height="215" fill="var(--low-wash)"/>
+        <rect x="430" y="0" width="470" height="215" fill="var(--high-wash)"/>
+        <line x1="0" y1="215" x2="900" y2="215" stroke="var(--rule)" stroke-width="1.5"/>
+        <line x1="0" y1="60" x2="430" y2="60" stroke="var(--low)" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <line x1="430" y1="130" x2="900" y2="130" stroke="var(--high)" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <polyline fill="none" stroke="var(--low)" stroke-width="2.5" stroke-linejoin="round"
+          points="0,150 30,120 55,145 85,115 110,140 140,110 165,60 195,88 220,60 250,85 275,60 305,90 330,62 360,60 385,95 410,63 430,88"/>
+        <polyline fill="none" stroke="var(--high)" stroke-width="2.5" stroke-linejoin="round"
+          points="430,88 455,130 480,158 505,131 530,160 555,132 580,165 610,133 635,170 660,132 685,162 710,131 740,168 765,133 790,161 815,130 845,166 875,132 900,158"/>
+        <text x="12" y="42" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--low)">plafond de stock — demande basse</text>
+        <text x="442" y="152" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--high)">plafond abaissé — demande haute</text>
+        <text x="12" y="240" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--ink-faint)">régime bas</text>
+        <text x="442" y="240" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--ink-faint)">régime haut</text>
+      </svg>
+    </figure>
+    <p class="note">Le stock monte quand la production dépasse les ventes, retombe à chaque
+      vente, et plafonne au niveau au-delà duquel on cesse de produire. Ce plafond, et le
+      prix, sont les deux seules décisions.</p>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <div class="eyebrow"><b>02</b> <span>Le problème</span></div>
+    <h2>Une capacité qu'on ne peut pas étirer, une demande qui alterne.</h2>
+    <div class="cols two">
+      <div>
+        <p>Un fabricant produit un article, le stocke, et le vend. Sa capacité est
+          <strong>bornée</strong> : une unité à la fois, à cadence fixe. Il ne peut donc pas
+          répondre à un pic de demande en produisant plus vite.</p>
+        <p style="margin-top:1rem">La demande, elle, <strong>alterne entre régimes</strong> —
+          haute saison, basse saison — qu'il observe mais ne contrôle pas.</p>
+      </div>
+      <ul class="plain">
+        <li data-tag="levier 1">Quand produire, c'est-à-dire jusqu'à quel niveau de stock remonter.</li>
+        <li data-tag="levier 2">À quel prix vendre, ce qui règle la vitesse à laquelle le stock s'écoule.</li>
+        <li data-tag="tension">Un prix bas vide le stock mais laisse de la marge sur la table ; un prix haut la préserve mais fait dormir du capital.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide">
+    <div class="eyebrow"><b>03</b> <span>Les politiques possibles</span></div>
+    <h2>Cinq politiques, deux axes de liberté.</h2>
+    <p>Le prix peut être unique, propre à chaque régime, ou recalculé à chaque état. Le
+      plafond de stock peut être unique ou propre à chaque régime. Les deux axes sont
+      indépendants.</p>
+    <div class="scroller">
+      <table class="matrix">
+        <thead>
+          <tr><th></th><th>Prix unique</th><th>Un prix par régime</th><th>Un prix par état</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Plafond unique</th>
+            <td><b>S</b><span>la référence</span></td>
+            <td><b>SB</b><span>prix saisonnier</span></td>
+            <td class="void">non considérée</td>
+          </tr>
+          <tr>
+            <th>Un plafond par régime</th>
+            <td><b>SP</b><span>stock saisonnier</span></td>
+            <td><b>EDP</b><span>prix + stock saisonniers</span></td>
+            <td><b>DP</b><span>pilotage temps réel</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Tout ce qui suit compare au cas <b>S</b> — un seul prix, un seul plafond —
+      la politique traditionnelle.</p>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide">
+    <div class="eyebrow"><b>04</b> <span>Ce que chaque politique rapporte</span></div>
+    <h2>Ajuster les prix rapporte. Ajuster les stocks, presque rien.</h2>
+    <div class="bars" role="img" aria-label="Gain de profit sur la politique S : SP 2,5 %, SB 12,0 %, EDP 13,7 %, DP 15,4 %.">
+      <div class="bar"><span class="who">SP</span><span class="track"><span class="fill muted" style="width:16%"></span></span><span class="num">+2,5 %</span></div>
+      <div class="bar"><span class="who">SB</span><span class="track"><span class="fill" style="width:78%"></span></span><span class="num">+12,0 %</span></div>
+      <div class="bar"><span class="who">EDP</span><span class="track"><span class="fill" style="width:89%"></span></span><span class="num">+13,7 %</span></div>
+      <div class="bar"><span class="who">DP</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="num">+15,4 %</span></div>
+    </div>
+    <p><strong>SP</strong> ajuste les stocks au régime sans toucher aux prix : +2,5 %.
+      <strong>SB</strong> fait l'inverse — ajuste les prix sans toucher aux stocks : +12,0 %.
+      L'essentiel du gain tient donc au prix, pas au stock.</p>
+    <p class="note">Demande alternant de ±80 % autour de sa moyenne, capacité contrainte.
+      Gains relatifs à la politique S.</p>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide">
+    <div class="eyebrow"><b>05</b> <span>L'écart qui décide</span></div>
+    <h2>Le pilotage en temps réel n'ajoute que trois points, au mieux.</h2>
+    <div class="stat">
+      <div><b>3,2 %</b><span>gain maximal de DP sur EDP</span></div>
+      <div><b>13,7 %</b><span>gain d'EDP sur un prix unique</span></div>
+    </div>
+    <p>Sur l'ensemble des capacités de production examinées, l'écart entre le pilotage en
+      temps réel et un simple prix par régime ne dépasse jamais <strong>3,2 %</strong>.</p>
+    <p>C'est le chiffre qui tranche la question posée au départ : la complexité
+      supplémentaire de DP — suivi du stock en continu, changements de prix incessants —
+      s'achète contre une fraction du gain déjà obtenu en changeant de prix quatre fois
+      par an.</p>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide">
+    <div class="eyebrow"><b>06</b> <span>Quand ça vaut le coup</span></div>
+    <h2>Trois conditions, et elles ne se compensent pas.</h2>
+    <ul class="plain">
+      <li data-tag="variabilité"><strong>Il faut que la demande bouge vraiment.</strong>
+        C'est le déterminant principal : à demande stable, le gain de toute politique
+        adaptative tombe sous 2 %, et le plafond théorique est de 3,8 %.</li>
+      <li data-tag="durée"><strong>Il faut que les régimes durent.</strong> Plus les saisons
+        se succèdent vite, plus le gain diminue : une politique de prix n'a pas le temps de
+        produire ses effets avant que le contexte ne bascule.</li>
+      <li data-tag="capacité"><strong>Il faut une capacité intermédiaire.</strong> Trop
+        contrainte, le stock reste vide et l'on vend déjà au prix fort ; trop abondante, la
+        production absorbe seule les à-coups. Le prix ne sert qu'entre les deux.</li>
+    </ul>
+    <p class="note">Un coût de stockage élevé renforce l'intérêt de la tarification : elle
+      sert alors à écouler avant que la facture de stockage ne tombe.</p>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide" id="menu">
+    <div class="eyebrow"><b>07</b> <span>Combien de tarifs</span></div>
+    <h2>Deux ou trois tarifs suffisent.</h2>
+    <p>Changer de prix coûte cher — réétiquetage, systèmes, lisibilité pour le client.
+      Question directe : que perd-on à se limiter à quelques tarifs plutôt qu'à un prix
+      continu ?</p>
+    <div class="stat" id="menu-stats">
+      <div><b>≈78 %</b><span>du bénéfice, avec 2 tarifs</span></div>
+      <div><b>≈92 %</b><span>du bénéfice, avec 3 tarifs</span></div>
+    </div>
+    <p>Le rendement décroît très vite, et l'essentiel se joue entre « un seul prix » et
+      « deux prix ». Une grille à deux ou trois tarifs, lisible et simple à administrer,
+      vaut mieux qu'un moteur de prix continu dans la quasi-totalité des cas.</p>
+  </section>
+
+  <!-- 8 -->
+  <section class="slide">
+    <div class="eyebrow"><b>08</b> <span>La recommandation</span></div>
+    <h2>Ce qu'il faut faire, selon la situation.</h2>
+    <dl class="verdict">
+      <div><dt>demande stable</dt><dd><b>Un prix unique.</b> Le gain de toute alternative ne couvre pas son coût d'exploitation.</dd></div>
+      <div><dt>saisons marquées et durables</dt><dd><b>Un prix par saison.</b> Capte l'essentiel du gain, avec des changements rares et annonçables.</dd></div>
+      <div><dt>capacité très serrée ou très large</dt><dd><b>Un prix unique.</b> Le gain retombe aux deux extrémités.</dd></div>
+      <div><dt>capacité moyenne, stockage cher</dt><dd><b>Un prix par saison</b>, le temps réel à n'envisager qu'ici.</dd></div>
+      <div><dt>contrainte sur les étiquettes</dt><dd><b>Deux ou trois tarifs</b>, pas davantage.</dd></div>
+    </dl>
+  </section>
+
+  <!-- 9 -->
+  <section class="slide">
+    <div class="eyebrow"><b>09</b> <span>Ce qui a été vérifié</span></div>
+    <h2>Les chiffres reproduisent une référence publiée.</h2>
+    <p>Le modèle et les résultats sont ceux de Gayon, Talay-Değirmenci, Karaesmen et Örmeci
+      (2009). Le solveur a été confronté aux valeurs publiées avant d'être utilisé pour
+      explorer.</p>
+    <div class="stat">
+      <div><b>20/20</b><span>niveaux de stock exacts</span></div>
+      <div><b>0,14 pt</b><span>écart maximum sur les gains</span></div>
+      <div><b>3,22 / 3,24</b><span>calculé contre publié</span></div>
+    </div>
+    <p>La reproduction est assez fidèle pour avoir mis au jour <strong>trois écarts dans la
+      source elle-même</strong>, dont une propriété affirmée dans le texte que la table du
+      même article contredit.</p>
+  </section>
+
+  <!-- 10 -->
+  <section class="slide">
+    <div class="eyebrow"><b>10</b> <span>Ce que le modèle ne dit pas</span></div>
+    <h2>Les gains affichés sont des majorants.</h2>
+    <ul class="plain">
+      <li data-tag="coûts cachés">Ni le coût de mise en œuvre d'une politique, ni la réaction
+        des clients aux variations de prix ne sont facturés. L'avantage réel du pilotage
+        temps réel est donc <strong>plus étroit encore</strong> que ces chiffres.</li>
+      <li data-tag="information">Le modèle suppose la saison parfaitement observable au moment
+        de décider — une hypothèse favorable, qui majore elle aussi le gain.</li>
+      <li data-tag="portée">Trois extensions — plus de deux régimes, coût de redémarrage,
+        ventes différées — dépassent la source publiée et ne sont validées que par
+        cohérence interne.</li>
+    </ul>
+    <p class="note">Aucune de ces limites ne renverse la conclusion : elles la renforcent
+      toutes dans le même sens, en faveur de la politique la plus simple.</p>
+  </section>
+
+  <footer>DynamicPricer — synthèse décisionnelle. Modèle : Gayon, Talay-Değirmenci,
+    Karaesmen &amp; Örmeci (2009), <em>Probability in the Engineering and Informational
+    Sciences</em> 23(2).</footer>
+</main>
+
+<script>
+  const rail = document.getElementById('rail');
+  const onScroll = () => {
+    const h = document.documentElement.scrollHeight - window.innerHeight;
+    rail.style.width = (h > 0 ? (window.scrollY / h) * 100 : 0) + '%';
+  };
+  addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+</script>
