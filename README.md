@@ -41,6 +41,16 @@ python -m validation
 streamlit run dashboard/app.py
 ```
 
+Curseurs sur `µ`, `h`, `ε`, `q`, `a`, plus `N`, `K` et le backlog. Trois onglets :
+comparaison des cinq stratégies, niveaux de stock et courbe de prix DP, et une
+recommandation rédigée à partir des valeurs calculées.
+
+Deux points d'usage. Le pas de la grille de prix pilote le temps de calcul, qui croît
+en `(1/pas)^N` : le pas 0.05 est un bon compromis interactif, le pas 0.01 de l'Appendix E
+est réservé à la validation. Et avec `K > 0`, seule la stratégie DP est calculée — le
+balayage de prix en lot ne couvre pas l'état augmenté du serveur — le dashboard affiche
+alors la bande d'hystérésis et le signale explicitement.
+
 ## Structure
 
 ```
@@ -163,6 +173,6 @@ sont insensibles à la troncature (`m` de 60 à 400) et à la tolérance (`1e-5`
 | 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ |
 | 2 — Cinq stratégies de tarification | ✅ |
 | 3 — Validation | ✅ |
-| 4 — Analyse de sensibilité | ⬜ |
-| 5 — Dashboard | ⬜ |
+| 4 — Analyse de sensibilité | 🔄 |
+| 5 — Dashboard | ✅ |
 | 6 — Rapport & présentation | ⬜ |

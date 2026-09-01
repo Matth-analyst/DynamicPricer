@@ -663,17 +663,44 @@ def _probe_truncation(pb: Problem, lam_n: np.ndarray, gamma: float, max_sweeps: 
 
 
 def _solve_batch_truncated(pb: Problem, lam_n: np.ndarray, gamma: float, max_sweeps: int):
-    """Itération sur les politiques à troncature fixée, sur le problème normalisé."""
+    """Itération sur les politiques à troncature fixée, sur le problème normalisé.
+
+    L'arrêt est **par élément**, et pas seulement sur la stabilité de la politique.
+    Deux base-stocks voisins peuvent en effet donner exactement le même gain — c'est
+    fréquent quand le coût de stockage est faible — et le départage bascule alors
+    indéfiniment entre eux. Un seul élément dans ce cas bloquerait tout le lot, qui
+    n'aboutit que lorsque tous ont convergé.
+
+    Le second critère exploite la monotonie du gain propre à l'itération sur les
+    politiques : un tour qui n'améliore plus signale la convergence, et l'élément est
+    figé sur la meilleure politique rencontrée.
+    """
     P_free, r_free = _policy_free_dynamics(pb, lam_n)
-    s = np.zeros((pb.N, lam_n.shape[1]), dtype=int)
+    B = lam_n.shape[1]
+    s = np.zeros((pb.N, B), dtype=int)
+    s_best = s.copy()
+    g_best = np.full(B, -np.inf)
+    g_prev = np.full(B, -np.inf)
+    done = np.zeros(B, dtype=bool)
+
     for _ in range(max_sweeps):
         g_n, v = _policy_evaluation(pb, s, P_free, r_free)
+        better = g_n >= g_best
+        s_best[:, better] = s[:, better]
+        g_best[better] = g_n[better]
+
         s_next = base_stock_levels(v, pb)
-        if np.array_equal(s_next, s):
-            return g_n * gamma, s
-        s = s_next
+        stable = (s_next == s).all(axis=0)
+        stalled = g_n <= g_prev + _GAIN_STALL_TOL * np.maximum(1.0, np.abs(g_n))
+        done |= stable | stalled
+        if done.all():
+            return g_best * gamma, s_best
+        g_prev = g_n
+        s = np.where(done[None], s, s_next)
+
     raise RuntimeError(
-        f"L'itération sur les politiques n'a pas convergé en {max_sweeps} tours."
+        f"L'itération sur les politiques n'a pas convergé en {max_sweeps} tours "
+        f"({int((~done).sum())} élément(s) encore actifs)."
     )
 
 
@@ -849,9 +876,12 @@ def _solve_policy_iteration(
         prices = np.tile((1.0 - np.asarray(lam_fixed) / Lam) / pb.a, (X, 1))
     else:
         lam = np.tile(Lam / 2.0, (X, 1))  # p = p*, l'optimum sans coût de stockage
-        prices = np.full((X, N), np.nan)
+        prices = np.full((X, N), pb.p_star)
+    prices[0] = np.nan  # en `x_min` la demande est perdue : le prix n'a aucun effet
 
     g_prev = -np.inf
+    best = None  # (g, v, s, prices) de la meilleure politique rencontrée
+    seen = set()  # politiques déjà visitées, pour détecter les cycles
     for sweep in range(1, max_sweeps + 1):
         P, r = _state_dependent_chain(pb, lam, s)
         M = np.zeros((n + 1, n + 1))
@@ -864,19 +894,39 @@ def _solve_policy_iteration(
         v = sol[:n].reshape(X, N)
         g_n = sol[n]
 
+        if best is None or g_n >= best[0]:
+            best = (g_n, v, s.copy(), prices.copy())
         stalled = g_n <= g_prev + _GAIN_STALL_TOL * max(1.0, abs(g_n))
         g_prev = max(g_prev, g_n)
+
         s_next = base_stock_levels(v, pb)
         if frozen:
-            if np.array_equal(s_next, s):
-                return g_n * gamma, v, tuple(int(i) for i in s_next), prices, sweep
-            s = s_next
-            continue
-        lam_next, prices = _greedy_demand(v, pb, price_menu)
-        settled = np.all(np.abs(lam_next - lam) <= _LAM_ABS_TOL)
+            lam_next, prices_next, settled = lam, prices, True
+        else:
+            lam_next, prices_next = _greedy_demand(v, pb, price_menu)
+            settled = np.all(np.abs(lam_next - lam) <= _LAM_ABS_TOL)
+
         if np.array_equal(s_next, s) and (settled or stalled):
-            return g_n * gamma, v, tuple(int(i) for i in s_next), prices, sweep
-        s, lam = s_next, lam_next
+            g_b, v_b, s_b, p_b = best
+            return g_b * gamma, v_b, tuple(int(i) for i in s_b), p_b, sweep
+
+        # Détection de cycle. Deux politiques distinctes peuvent avoir exactement la
+        # même valeur — c'est fréquent avec un menu de prix fini — et l'amélioration
+        # bascule alors indéfiniment de l'une à l'autre. On le constate par une
+        # politique déjà visitée, ce qui est exact et ne demande aucun seuil.
+        #
+        # Le critère de non-amélioration ne peut pas jouer ce rôle seul : quand le
+        # système est mal conditionné (un coût de pénurie élevé porte `v` à ~1e6),
+        # le bruit numérique sur `g` dépasse les progrès des premiers tours et ferait
+        # conclure à tort à la convergence. D'où l'exigence conjointe que `s` soit
+        # stable ci-dessus.
+        key = (s_next.tobytes(), lam_next.tobytes())
+        if key in seen:
+            g_b, v_b, s_b, p_b = best
+            return g_b * gamma, v_b, tuple(int(i) for i in s_b), p_b, sweep
+        seen.add(key)
+
+        s, lam, prices = s_next, lam_next, prices_next
 
     raise RuntimeError(
         f"L'itération sur les politiques n'a pas convergé en {max_sweeps} tours."
