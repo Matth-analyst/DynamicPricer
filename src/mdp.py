@@ -1,7 +1,7 @@
 """Solveur MDP générique : opérateurs de base et value iteration (Étape 1 de la spec).
 
 Notation des opérateurs (cf. note de notation §Étape 1.1 de la spec) :
-`T0` = décision de réapprovisionnement (`T1` dans le papier 2009, éq. 1),
+`T0_unit` = décision de production à l'unité (`T1` dans le papier 2009, éq. 1),
 `T2` = transitions d'environnement réelles + fictives (éq. 2),
 `Tlam` = arrivée de demande à taux `λ` fixé,
 `T_dynamic` = `max_λ Tlam`, l'opérateur de tarification dynamique (§3.3).
@@ -10,6 +10,14 @@ L'équation d'optimalité en gain moyen s'écrit, après uniformisation
 (`µ + Σ_e Λ_e + Σ_e Σ_{j≠e} q_ej = 1`) :
 
     v(x,e) + g = -h(x) + µ·T0 v(x,e) + T2 v(x,e) + Tlam v(x,e)
+
+Avec un coût de mise en route (`K > 0`, Étape 1.2), l'état s'augmente de
+l'indicateur `σ ∈ {0, 1}` (serveur arrêté / en marche), l'opérateur `T0` se scinde
+en production `T_produce` et commutation `T_switch`, et l'équation devient :
+
+    v(x,e,σ) + g = T_switch( -h(x) + µ·T_produce v + T2 v + Tlam v )(x,e,σ)
+
+Avec `K = 0` cette forme se réduit **exactement** à la précédente.
 
 Les masses des trois opérateurs somment exactement à 1, ce qui en fait un
 opérateur de Bellman en gain moyen propre (cf. `test_operator_masses_sum_to_one`).
@@ -71,50 +79,54 @@ def T0_unit(f: np.ndarray, pb: Problem) -> np.ndarray:
     return np.maximum(f, produced)
 
 
-def T0_setup(f: np.ndarray, pb: Problem) -> np.ndarray:
-    """Réapprovisionnement par lots avec coût fixe (Étape 1.2, hors périmètre du papier).
+def T_switch(f: np.ndarray, pb: Problem) -> np.ndarray:
+    """Opérateur de commutation marche/arrêt du serveur (Étape 1.2).
 
-        `T0 f(x,e) = max{f(x,e), max_{y>x}[f(y,e) - c(y-x) - K]}`
+        `S f(x,e,σ) = max{ f(x,e,0), f(x,e,1) - K·1{σ=0} }`
 
-    Interprétation : des opportunités de réapprovisionnement arrivent au taux `µ`,
-    et l'on peut alors commander une quantité **quelconque** `y - x` au coût
-    `c(y-x) + K`. Ce n'est ni le modèle du papier, ni le coût de mise en route d'un
-    serveur unique produisant à l'unité (qui exigerait d'augmenter l'espace d'état
-    d'un indicateur marche/arrêt).
+    `f` est de forme `(x, e, σ)` avec `σ = 0` serveur à l'arrêt, `σ = 1` en marche.
+    Arrêter est gratuit ; démarrer coûte `K`, et seulement si le serveur était arrêté.
 
-    ATTENTION — cet opérateur ne dégénère **pas** en `T0_unit` quand `K = 0`.
-    Le maximiseur de `max_{y>x}[f(y,e) - c(y-x)]` est le sommet de la concave
-    `y ↦ f(y,e) - c·y`, pas `y = x+1` : la quantité commandée par opportunité est
-    illimitée. Le modèle « lot » relâche donc la contrainte de capacité qui fonde
-    tout le make-to-stock queue, et son gain moyen **domine** celui de l'Étape 1.1
-    au lieu de le retrouver. Le test de non-régression `K=0` prescrit par la spec
-    (Étape 1.2) est de ce fait mathématiquement impossible sous cette forme
-    d'opérateur ; voir la section « Coût fixe » du README.
+    Quand `K = 0`, `S f` ne dépend plus de `σ` et vaut `max{f(·,0), f(·,1)}` : le
+    modèle se réduit alors exactement à celui de l'Étape 1.1 (cf. `_bellman_setup`).
     """
-    x = pb.states[:, None].astype(float)
-    # G(y) = f(y,e) - c·y ; on cherche max_{y > x} G(y), soit un cummax suffixe strict.
-    G = f - pb.c * x
-    suffix_max = np.full_like(G, -np.inf)
-    suffix_max[:-1] = np.maximum.accumulate(G[::-1], axis=0)[::-1][1:]
-    return np.maximum(f, suffix_max + pb.c * x - pb.K)
+    off, on = f[..., 0], f[..., 1]
+    return np.stack([np.maximum(off, on - pb.K), np.maximum(off, on)], axis=-1)
 
 
-def T0(f: np.ndarray, pb: Problem) -> np.ndarray:
-    """Décision de réapprovisionnement : aiguille vers `T0_unit` ou `T0_setup`.
+def T_produce(f: np.ndarray, pb: Problem) -> np.ndarray:
+    """Opérateur de production unitaire, exercé au taux `µ` (Étape 1.2).
 
-    `K = 0` → `T0_unit`, le make-to-stock queue du papier (production à l'unité).
-    `K > 0` → `T0_setup`, le modèle « lot ». Ce sont **deux modèles distincts**,
-    dont les gains moyens ne sont pas comparables entre eux (cf. `T0_setup`).
+        `P f(x,e,1) = f(x+1,e,1) - c`   une unité sort du serveur en marche
+        `P f(x,e,0) = f(x,e,0)`         serveur arrêté : rien ne se passe
+
+    La capacité reste celle du papier — une unité par événement `µ` — contrairement
+    à un réapprovisionnement par lots, qui la rendrait illimitée.
     """
-    return T0_unit(f, pb) if pb.K == 0.0 else T0_setup(f, pb)
+    out = f.copy()
+    out[:-1, :, 1] = f[1:, :, 1] - pb.c
+    return out
+
+
+def _by_env(vec: np.ndarray, ndim: int) -> np.ndarray:
+    """Met un vecteur indexé par environnement en forme pour diffuser sur l'axe 1.
+
+    Les opérateurs acceptent indifféremment une fonction de valeur `(x, e)`
+    (Étapes 1.1/1.3) ou `(x, e, σ)` (Étape 1.2) : seul l'axe 1 est l'environnement.
+    """
+    return vec.reshape((1, -1) + (1,) * (ndim - 2))
 
 
 def T2(f: np.ndarray, pb: Problem, A: np.ndarray | None = None) -> np.ndarray:
     """Transitions d'environnement, réelles et fictives, générique en `N` (éq. 2).
 
     `T2 f(x,e) = Σ_{j≠e} q_ej f(x,j) + (Σ_{i≠e} Λ_i + Σ_{i≠e} Σ_{j≠i} q_ij) f(x,e)`
+
+    L'environnement n'interagit pas avec l'état du serveur : l'opérateur agit à
+    l'identique sur chaque tranche `σ`.
     """
-    return f @ (env_matrix(pb) if A is None else A)
+    A = env_matrix(pb) if A is None else A
+    return np.moveaxis(np.tensordot(f, A, axes=([1], [0])), -1, 1)
 
 
 def Tlam(f: np.ndarray, pb: Problem, lam) -> np.ndarray:
@@ -126,9 +138,10 @@ def Tlam(f: np.ndarray, pb: Problem, lam) -> np.ndarray:
     À la borne basse la demande est perdue : c'est le cas `x = 0` du papier
     (lost sales) et, quand `m_backlog > 0`, l'artefact de troncature du backlog.
     """
-    Lam = np.asarray(pb.Lam, dtype=float)
     lam = np.asarray(lam, dtype=float)
-    rev = np.array([pb.revenue(float(lam[e]), e) for e in range(pb.N)])
+    Lam = _by_env(np.asarray(pb.Lam, dtype=float), f.ndim)
+    rev = _by_env(np.array([pb.revenue(float(lam[e]), e) for e in range(pb.N)]), f.ndim)
+    lam = _by_env(lam, f.ndim)
 
     out = Lam * f
     # Δf(x-1,e) = f(x,e) - f(x-1,e) : bénéfice de l'unité vendue.
@@ -155,7 +168,7 @@ def T_dynamic(
     et où le prix n'a donc aucun effet (le papier ne rapporte les prix DP que
     pour `x >= 1`).
     """
-    Lam = np.asarray(pb.Lam, dtype=float)
+    Lam = _by_env(np.asarray(pb.Lam, dtype=float), f.ndim)
     out = Lam * f
     prices = np.full(f.shape, np.nan)
 
@@ -167,13 +180,13 @@ def T_dynamic(
         out[1:] += lam * p - lam * delta
         prices[1:] = p
     else:
-        menu = np.asarray(price_menu, dtype=float)
-        # (n_prix, x, e) : on évalue le menu complet puis on prend l'argmax.
-        lam = Lam[None, None, :] * (1.0 - pb.a * menu[:, None, None])
-        gains = lam * menu[:, None, None] - lam * delta[None, :, :]
+        menu = np.asarray(price_menu, dtype=float).reshape((-1,) + (1,) * f.ndim)
+        # (n_prix, x, e[, σ]) : on évalue le menu complet puis on prend l'argmax.
+        lam = Lam[None] * (1.0 - pb.a * menu)
+        gains = lam * menu - lam * delta[None]
         best = np.argmax(gains, axis=0)
         out[1:] += np.take_along_axis(gains, best[None], axis=0)[0]
-        prices[1:] = menu[best]
+        prices[1:] = menu.reshape(-1)[best]
 
     return out, prices
 
@@ -209,13 +222,33 @@ class MDPSolution:
         return iter((self.g, self.v, self.base_stock))
 
 
-def _bellman(v, pb, A, lam, price_menu, h_vec):
-    """Une application de l'opérateur de Bellman complet."""
+def _demand_term(v, pb, lam, price_menu):
     if lam is None:
-        demand_term, prices = T_dynamic(v, pb, price_menu)
-    else:
-        demand_term, prices = Tlam(v, pb, lam), None
-    return -h_vec[:, None] + pb.mu * T0(v, pb) + T2(v, pb, A) + demand_term, prices
+        return T_dynamic(v, pb, price_menu)
+    return Tlam(v, pb, lam), None
+
+
+def _bellman_unit(v, pb, A, lam, price_menu, h_vec):
+    """Opérateur de Bellman de l'Étape 1.1 : `-h + µ·T0 + T2 + Tλ`, sur `(x, e)`."""
+    demand, prices = _demand_term(v, pb, lam, price_menu)
+    return -h_vec[:, None] + pb.mu * T0_unit(v, pb) + T2(v, pb, A) + demand, prices, None
+
+
+def _bellman_setup(v, pb, A, lam, price_menu, h_vec):
+    """Opérateur de Bellman de l'Étape 1.2 : `S(-h + µ·P + T2 + Tλ)`, sur `(x, e, σ)`.
+
+    Renvoie aussi `d(x,e) = inner(x,e,1) - inner(x,e,0)`, le gain net de tourner
+    **hors** coût de mise en route, dont se déduisent les deux seuils : on produit
+    si `σ=1` et `d > 0`, on redémarre si `σ=0` et `d > K`.
+
+    Avec `K = 0`, `T_switch` devient `max{inner(·,0), inner(·,1)}` : les deux tranches
+    `σ` se confondent, `inner(·,1) = -h + µ(v(x+1)-c) + …` et `inner(·,0) = -h + µ·v(x) + …`,
+    donc leur maximum est littéralement `-h + µ·T0_unit v + T2 v + Tλ v`. La réduction
+    à l'Étape 1.1 est donc exacte, pas approchée.
+    """
+    demand, prices = _demand_term(v, pb, lam, price_menu)
+    inner = -h_vec[:, None, None] + pb.mu * T_produce(v, pb) + T2(v, pb, A) + demand
+    return T_switch(inner, pb), prices, inner[..., 1] - inner[..., 0]
 
 
 def extract_base_stock(v: np.ndarray, pb: Problem) -> tuple[int, ...]:
@@ -239,6 +272,7 @@ def solve_mdp(
     pb: Problem,
     lam=None,
     price_menu: np.ndarray | None = None,
+    force_setup_model: bool = False,
 ) -> MDPSolution:
     """Value iteration relative en gain moyen (Appendix E : 5 décimales).
 
@@ -252,6 +286,10 @@ def solve_mdp(
         état. Les taux sont exprimés dans les unités de `pb` et normalisés ici.
     price_menu :
         Menu de prix fini pour la stratégie DP (Étape 4). `None` → prix continu.
+    force_setup_model :
+        Force l'espace d'état augmenté `(x, e, σ)` même quand `K = 0`. Sert au test
+        de non-régression de l'Étape 1.2 : les deux modèles doivent alors coïncider
+        exactement. Sans intérêt en usage normal — le chemin `(x, e)` est plus rapide.
 
     Returns
     -------
@@ -268,17 +306,21 @@ def solve_mdp(
             raise ValueError("Chaque λ_e doit appartenir à [0, Λ_e].")
         lam_n = np.clip(lam_n, 0.0, Lam)
 
-    v = np.zeros((npb.states.size, npb.N))
-    g_n, prices, converged, it = 0.0, None, False, 0
+    setup_model = npb.K > 0 or force_setup_model
+    shape = (npb.states.size, npb.N, 2) if setup_model else (npb.states.size, npb.N)
+    bellman = _bellman_setup if setup_model else _bellman_unit
+
+    v = np.zeros(shape)
+    g_n, prices, d, converged, it = 0.0, None, None, False, 0
 
     for it in range(1, npb.max_iter + 1):
-        w, prices = _bellman(v, npb, A, lam_n, price_menu, h_vec)
+        w, prices, d = bellman(v, npb, A, lam_n, price_menu, h_vec)
         diff = w - v
         lo, hi = diff.min(), diff.max()
         # Estimation du gain par le milieu de l'intervalle : l'erreur est
         # majorée par la demi-amplitude (Puterman, value iteration relative).
         g_n = 0.5 * (lo + hi)
-        v = w - w[0, 0]
+        v = w - w.flat[0]
         if hi - lo < npb.tol:
             converged = True
             break
@@ -286,48 +328,54 @@ def solve_mdp(
     return MDPSolution(
         g=g_n * gamma,
         v=v,
-        base_stock=None if npb.K > 0 else extract_base_stock(v, npb),
-        sS=extract_sS_policy(v, npb) if npb.K > 0 else None,
+        base_stock=None if setup_model else extract_base_stock(v, npb),
+        sS=extract_setup_policy(d, npb) if setup_model else None,
         prices=prices,
         n_iter=it,
         converged=converged,
     )
 
 
-def extract_sS_policy(v: np.ndarray, pb: Problem) -> tuple[tuple[int, int], ...]:
-    """Extrait la politique `(s_e, S_e)` quand `K > 0` (Étape 1.2).
+def extract_setup_policy(d: np.ndarray, pb: Problem) -> tuple[tuple[int, int], ...]:
+    """Extrait la bande d'hystérésis `(s_e, S_e)` du modèle à mise en route (Étape 1.2).
 
-    Renvoie, pour chaque environnement, `(s_e, S_e)` où l'on commande ssi
-    `x <= s_e`, en remontant jusqu'à `S_e`. Lève `ValueError` si la cible de
-    remontée n'est pas constante sur la région de commande — c'est-à-dire si la
-    politique optimale n'est **pas** de type `(s, S)`, ce que l'Étape 1.2 demande
-    de vérifier numériquement plutôt que de supposer.
+    `d(x,e) = inner(x,e,1) - inner(x,e,0)` est le gain net de faire tourner le
+    serveur, **hors** coût de mise en route. La décision optimale s'en déduit :
+
+        serveur en marche (`σ=1`) : on continue ssi `d(x,e) > 0`
+        serveur arrêté   (`σ=0`) : on redémarre ssi `d(x,e) > K`
+
+    D'où `S_e = min{x : d(x,e) <= 0}` (seuil d'arrêt) et `s_e = min{x : d(x,e) <= K}`
+    (seuil de redémarrage), avec `s_e <= S_e` puisque `K >= 0`.
+
+    `d` doit être décroissante en `x` pour que ces deux seuils définissent bien une
+    politique de type bande ; l'Étape 1.2 demande de le **constater** plutôt que de
+    le supposer, d'où le `ValueError` en cas de violation.
     """
-    x = pb.states.astype(float)
-    out = []
-    for e in range(pb.N):
-        G = v[:, e] - pb.c * x
-        targets, orders = [], []
-        for i in range(len(x)):
-            if i == len(x) - 1:
-                orders.append(False)
-                continue
-            j = int(np.argmax(G[i + 1:])) + i + 1
-            gain = G[j] + pb.c * x[i] - pb.K
-            order = gain > v[i, e]
-            orders.append(order)
-            if order:
-                targets.append(int(pb.states[j]))
-        idx = np.flatnonzero(orders)
+    tol = 1e-9
+    # La dernière ligne `x_max` est écartée : la troncature y interdit de produire,
+    # ce qui y fait remonter `d` artificiellement. Les deux seuils doivent de toute
+    # façon être strictement intérieurs à la grille.
+    interior = d[:-1]
+    if np.any(np.diff(interior, axis=0) > tol):
+        raise ValueError(
+            "d(x,e) n'est pas décroissante en x : la politique optimale n'est pas "
+            "une bande d'hystérésis à deux seuils."
+        )
+
+    def first_below(col, threshold, name, e):
+        idx = np.flatnonzero(col <= threshold + tol)
         if idx.size == 0:
-            out.append((int(pb.x_min) - 1, int(pb.x_min) - 1))  # on ne commande jamais
-            continue
-        if len(set(targets)) != 1:
             raise ValueError(
-                f"La cible de remontée n'est pas constante en environnement {e} "
-                f"(valeurs {sorted(set(targets))}) : la politique optimale n'est pas (s, S)."
+                f"Seuil {name} hors grille en environnement {e} : augmenter `m_stock` "
+                "jusqu'à ce que la troncature ne morde plus (cf. Appendix E)."
             )
-        s_e = int(pb.states[idx[-1]])
-        S_e = targets[0]
-        out.append((s_e, S_e))
-    return tuple(out)
+        return int(pb.states[idx[0]])
+
+    return tuple(
+        (
+            first_below(interior[:, e], pb.K, "s_e", e),
+            first_below(interior[:, e], 0.0, "S_e", e),
+        )
+        for e in range(pb.N)
+    )

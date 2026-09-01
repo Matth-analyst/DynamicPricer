@@ -46,26 +46,29 @@ dynamicpricer/
 
 ## Modèle et limites connues
 
-### Coût fixe de commande (`K > 0`) — modèle distinct, non comparable
+### `K` est un coût de mise en route, pas un coût de commande par lots
 
-L'opérateur prescrit par la spec,
-`T0 f(x,e) = max{f(x,e), max_{y>x}[f(y,e) - c(y-x) - K]}`, autorise une quantité
-commandée **illimitée** à chaque opportunité de réapprovisionnement. Il ne dégénère
-donc pas en `max{f(x,e), f(x+1,e) - c}` quand `K = 0` : le maximiseur est le sommet
-de `y ↦ f(y,e) - c·y`, pas `y = x+1`.
+Une première rédaction de la spec posait
+`T0 f(x,e) = max{f(x,e), max_{y>x}[f(y,e) - c(y-x) - K]}`, soit une commande de
+quantité libre à chaque opportunité. Cette forme a été abandonnée : elle ne dégénère
+pas en `max{f(x,e), f(x+1,e) - c}` quand `K = 0` (le maximiseur est le sommet de
+`y ↦ f(y,e) - c·y`, pas `y = x+1`), elle supprime la contrainte de capacité qui fonde
+le make-to-stock queue, et son gain moyen dépasse celui de l'Étape 1.1 au lieu de le
+retrouver — rendant impossible le test de non-régression que la spec exigeait.
 
-Deux conséquences :
+`K` est donc le coût de **redémarrage du serveur**. L'état devient `(x, e, σ)` avec
+`σ ∈ {0,1}` (arrêté / en marche), la production reste unitaire au taux `µ`, et
+l'équation d'optimalité s'écrit
+`v = T_switch(-h + µ·T_produce v + T2 v + Tλ v)`.
 
-1. le **test de non-régression `K=0`** prescrit par l'Étape 1.2 de la spec est
-   mathématiquement impossible sous cette forme d'opérateur ;
-2. le modèle « lot » relâche la contrainte de capacité qui fonde le make-to-stock
-   queue, et son gain moyen **dépasse** celui de l'Étape 1.1 au lieu de le retrouver.
+La politique optimale est une **bande d'hystérésis** : on produit jusqu'à `S_e`, on ne
+redémarre qu'une fois retombé sous `s_e`. Ce n'est pas un `(s, S)` au sens de
+Chen & Simchi-Levi — ces références portent sur un réapprovisionnement non capacité —
+et la structure est donc constatée numériquement (`d(x,e)` décroissante), pas citée.
 
-`T0_setup` implémente néanmoins la formule de la spec telle qu'écrite, et produit
-bien une politique `(s_e, S_e)`. Les tests comparent des instances **à modèle
-constant** (`K` croissant), seule comparaison qui ait un sens. Le choix entre
-conserver ce modèle et repasser à un coût de mise en route avec état marche/arrêt
-du serveur reste ouvert.
+Les deux validations internes passent : `K = 0` redonne **exactement** l'Étape 1.1
+(`g` identique à `1e-12`, bande dégénérée en `(s_e, s_e)`), et la bande s'élargit
+pendant que `g` décroît à mesure que `K` augmente.
 
 ### Écarts résiduels avec la Table 5 du papier
 
@@ -88,7 +91,7 @@ sont insensibles à la troncature (`m` de 60 à 400) et à la tolérance (`1e-5`
 | Étape | Statut |
 |---|---|
 | 0 — Cadrage & structure du repo | ✅ |
-| 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ (1.2 : voir limites ci-dessus) |
+| 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ |
 | 2 — Cinq stratégies de tarification | ⬜ |
 | 3 — Validation | ⬜ |
 | 4 — Analyse de sensibilité | ⬜ |

@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 
 from mdp import (
-    T0_setup,
     T0_unit,
+    T_produce,
+    T_switch,
     T2,
     T_dynamic,
     Tlam,
@@ -161,60 +162,82 @@ def test_gain_is_insensitive_to_truncation():
 
 
 # ---------------------------------------------------------------------------
-# Étape 1.2 — coût fixe de commande
+# Étape 1.2 — coût fixe de mise en route du serveur
 # ---------------------------------------------------------------------------
 
 
-def test_batch_operator_does_not_degenerate_to_the_unit_operator():
-    """Le test de non-régression `K=0` de la spec est impossible sous cette forme.
+def test_switch_operator_charges_K_only_when_restarting():
+    """`S f(x,e,σ) = max{f(x,e,0), f(x,e,1) - K·1{σ=0}}` (Étape 1.2)."""
+    pb = Problem.two_env(eps=0.6, K=0.5, m_stock=5)
+    rng = np.random.default_rng(4)
+    f = rng.normal(size=(pb.states.size, pb.N, 2))
 
-    `T0_setup` remonte au sommet de `y ↦ f(y,e) - c·y` en une seule opportunité,
-    là où `T0_unit` avance d'une unité : les deux opérateurs diffèrent strictement
-    dès que le sommet est à plus d'un pas, même avec `K = 0`.
+    out = T_switch(f, pb)
+    assert out[..., 0] == pytest.approx(np.maximum(f[..., 0], f[..., 1] - pb.K))
+    assert out[..., 1] == pytest.approx(np.maximum(f[..., 0], f[..., 1]))
+    # Rester à l'arrêt est toujours gratuit, donc être en marche vaut au moins autant.
+    assert np.all(out[..., 1] >= out[..., 0] - 1e-12)
+
+
+def test_production_operator_only_advances_the_running_slice():
+    pb = Problem.two_env(eps=0.6, c=0.05, K=0.5, m_stock=5)
+    rng = np.random.default_rng(5)
+    f = rng.normal(size=(pb.states.size, pb.N, 2))
+
+    out = T_produce(f, pb)
+    assert out[..., 0] == pytest.approx(f[..., 0])  # serveur arrêté : rien
+    assert out[:-1, :, 1] == pytest.approx(f[1:, :, 1] - pb.c)  # une unité sort
+    assert out[-1, :, 1] == pytest.approx(f[-1, :, 1])  # troncature : pas de production
+
+
+def test_setup_model_with_K_zero_reproduces_step_1_1_exactly():
+    """Non-régression de l'Étape 1.2 : `K = 0` redonne **exactement** l'Étape 1.1.
+
+    Avec `K = 0`, `T_switch` devient `max{inner(·,0), inner(·,1)}`, ce qui reconstitue
+    littéralement `max{f(x,e), f(x+1,e) - c}` : la réduction est exacte, pas approchée.
     """
-    pb = Problem.two_env(eps=0.6, c=0.0, K=0.0, m_stock=10)
-    f = np.array([[-((x - 6) ** 2) / 10.0, -((x - 4) ** 2) / 10.0] for x in pb.states])
-    assert np.all(np.diff(f, n=2, axis=0) <= 1e-12), "f doit être concave"
+    pb = Problem.two_env(eps=0.6, m_stock=60, tol=1e-9)
+    ref = solve_mdp(pb)
+    augmented = solve_mdp(pb, force_setup_model=True)
 
-    unit, batch = T0_unit(f, pb), T0_setup(f, pb)
-    assert np.all(batch >= unit - 1e-12)  # le lot domine toujours
-    assert np.any(batch > unit + 1e-6)  # et strictement, loin du sommet
-    # Les deux coïncident au sommet et au-delà, où la cible optimale est `x` ou `x+1`.
-    assert batch[-3:] == pytest.approx(unit[-3:])
+    assert augmented.g == pytest.approx(ref.g, rel=1e-12)
+    # La bande d'hystérésis dégénère : les deux seuils se confondent avec le base-stock.
+    assert augmented.sS == tuple((s, s) for s in ref.base_stock)
 
 
-def test_batch_model_dominates_the_capacitated_model():
-    """Conséquence : le gain du modèle « lot » n'est pas comparable à l'Étape 1.1.
-
-    La quantité commandée par opportunité étant illimitée, la contrainte de
-    capacité disparaît et le gain moyen dépasse celui du make-to-stock queue.
-    """
-    lam = np.array([0.2, 0.5])
-    capacitated = solve_mdp(Problem.two_env(eps=0.6, K=0.0, m_stock=60), lam=lam)
-    batch = solve_mdp(Problem.two_env(eps=0.6, K=0.5, m_stock=60), lam=lam)
-    assert batch.g > capacitated.g
-
-
-def test_positive_setup_cost_yields_an_sS_policy():
-    """Étape 1.2 : la politique optimale est de type `(s_e, S_e)` avec `s_e <= S_e`."""
-    pb = Problem.two_env(eps=0.6, K=0.5, m_stock=60)
-    sol = solve_mdp(pb, lam=np.array([0.2, 0.5]))
+def test_positive_setup_cost_yields_a_hysteresis_band():
+    """Étape 1.2 : deux seuils par environnement, avec `s_e <= S_e`."""
+    sol = solve_mdp(Problem.two_env(eps=0.6, K=0.5, m_stock=120, tol=1e-9))
     assert sol.base_stock is None and sol.sS is not None
     for s_e, S_e in sol.sS:
-        assert s_e <= S_e
-    # Un coût fixe creuse un écart strict entre les deux seuils, contrairement au
-    # base-stock pur où l'on commanderait dès `x = S - 1`.
-    assert any(S_e - s_e > 1 for s_e, S_e in sol.sS)
+        assert s_e < S_e  # un coût de mise en route creuse une bande stricte
 
 
-def test_higher_setup_cost_lowers_profit_within_the_batch_model():
-    """La comparaison qui a un sens : `K` croissant, à modèle constant."""
-    lam = np.array([0.2, 0.5])
-    cheap = solve_mdp(Problem.two_env(eps=0.6, K=0.5, m_stock=60), lam=lam)
-    dear = solve_mdp(Problem.two_env(eps=0.6, K=1.0, m_stock=60), lam=lam)
-    assert dear.g < cheap.g
-    # Un `K` plus élevé espace les commandes : l'écart `S - s` s'élargit.
-    assert sum(S - s for s, S in dear.sS) >= sum(S - s for s, S in cheap.sS)
+def test_band_widens_and_profit_falls_as_the_setup_cost_rises():
+    """Statique comparative : `K` croissant ⟹ on commute moins souvent, on gagne moins."""
+    sols = [
+        solve_mdp(Problem.two_env(eps=0.6, K=K, m_stock=160, tol=1e-9))
+        for K in (0.05, 0.5, 2.0)
+    ]
+    widths = [sum(S - s for s, S in sol.sS) for sol in sols]
+    assert widths[0] < widths[1] < widths[2]
+    assert sols[0].g > sols[1].g > sols[2].g
+
+
+def test_non_monotone_d_is_reported_rather_than_silently_accepted():
+    """L'Étape 1.2 demande de *constater* la structure en bande, pas de la supposer."""
+    from mdp import extract_setup_policy
+
+    pb = Problem.two_env(eps=0.6, K=0.5, m_stock=5)
+    d = np.tile(np.array([0.9, 0.1, 0.8, 0.05, 0.0, -0.5])[:, None], (1, pb.N))
+    with pytest.raises(ValueError, match="décroissante"):
+        extract_setup_policy(d, pb)
+
+
+def test_threshold_outside_the_grid_is_reported():
+    """Une troncature trop serrée doit être signalée, pas rendue en valeur sentinelle."""
+    with pytest.raises(ValueError, match="m_stock"):
+        solve_mdp(Problem.two_env(eps=0.6, K=2.0, m_stock=20, tol=1e-9))
 
 
 # ---------------------------------------------------------------------------
