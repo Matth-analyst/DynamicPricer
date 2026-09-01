@@ -129,7 +129,8 @@ def figure_2_data(mu_values=None, eps: float = 0.8) -> list[dict]:
     `N`-dimensionnel est partagé entre SP et EDP.
     """
     if mu_values is None:
-        mu_values = np.round(np.arange(0.06, 1.001, 0.06), 3)
+        # Grille de l'axe de la Figure 2 du papier : 0.01, 0.06, ..., 0.96.
+        mu_values = np.round(np.arange(0.01, 0.97, 0.05), 3)
     rows = []
     for mu in mu_values:
         pb = _problem(eps, mu=float(mu))
@@ -170,13 +171,37 @@ def structural_properties(solved: dict) -> list[dict]:
                 sols[n].base_stock[0] <= sols[n].base_stock[1]
                 for n in ("sp", "edp", "dp")
             ),
-            # §5.3.2 : la flexibilité de DP autorise davantage de stock.
+            # §5.3.2 : la flexibilité de DP autorise davantage de stock. Restreint
+            # à SP et EDP — voir `note` ci-dessous.
             dp_stores_most=all(
                 a <= b
-                for n in ("s", "sb", "sp", "edp")
+                for n in ("sp", "edp")
                 for a, b in zip(sols[n].base_stock, dp.base_stock)
             ),
+            note=_common_base_stock_note(sols),
         ))
+    return rows
+
+
+def _common_base_stock_note(sols) -> str:
+    """Compare le seuil commun de S/SB au base-stock DP de l'environnement bas.
+
+    Le papier énonce `s^φ_e <= s^dp_e` pour `φ = s, sb, sp, edp` (§5.3.2), mais sa
+    **propre Table 4** contredit cette affirmation à `ε = 0.8` : elle y publie
+    `s^sb = 4` et `s^dp_L = 3`. Ce n'est pas une erreur du solveur, qui reproduit ces
+    deux valeurs exactement — c'est une inexactitude du texte du papier.
+
+    L'explication est simple : S et SB n'ont qu'un seuil, compromis entre les
+    environnements, qui n'a pas de raison de rester sous le seuil que DP retient dans
+    l'environnement le plus faible. La propriété n'est bien posée que pour les
+    stratégies dont le base-stock dépend de l'environnement.
+    """
+    violations = [
+        f"s^{n}={sols[n].base_stock[0]} > s^dp_L={sols['dp'].base_stock[0]}"
+        for n in ("s", "sb")
+        if sols[n].base_stock[0] > sols["dp"].base_stock[0]
+    ]
+    return "; ".join(violations) if violations else "s^s, s^sb <= s^dp_L"
     return rows
 
 

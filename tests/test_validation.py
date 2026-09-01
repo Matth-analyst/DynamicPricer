@@ -76,8 +76,21 @@ def test_dp_price_ranges_match_except_two_documented_outliers(solved):
 def test_structural_properties_hold_on_every_instance(solved):
     """Lemme 1, Théorèmes 2 et 3, et §5.3.2 — vérifiés sur les quatre instances."""
     for row in V.structural_properties(solved):
-        failed = [k for k, v in row.items() if k != "eps" and v is not True]
+        failed = [k for k, v in row.items() if isinstance(v, bool) and not v]
         assert not failed, f"propriétés en défaut à ε={row['eps']} : {failed}"
+
+
+def test_paper_own_table_contradicts_its_stated_base_stock_property(solved):
+    """§5.3.2 annonce `s^φ_e <= s^dp_e` pour `φ = s, sb, sp, edp` — à tort.
+
+    La Table 4 du papier publie elle-même `s^sb = 4` et `s^dp_L = 3` à `ε = 0.8`. Le
+    solveur reproduit ces deux valeurs exactement, donc l'écart est dans le texte du
+    papier, pas dans le solveur. Ce test fige le constat.
+    """
+    assert ref.TABLE_4[0.8]["sb"] > ref.TABLE_4[0.8]["dp"][0]
+    sols = solved[0.8]
+    assert sols["sb"].base_stock[0] == ref.TABLE_4[0.8]["sb"]
+    assert sols["dp"].base_stock[0] == ref.TABLE_4[0.8]["dp"][0]
 
 
 def test_figure_2_reproduces_the_published_shape():
@@ -86,7 +99,7 @@ def test_figure_2_reproduces_the_published_shape():
     C'est la conclusion de fond du papier (§5.3.4) — EDP capte l'essentiel du bénéfice
     de DP. On vérifie la forme et l'ordre de grandeur, pas un tracé point par point.
     """
-    rows = V.figure_2_data(mu_values=[0.11, 0.26, 0.51, 0.81])
+    rows = V.figure_2_data(mu_values=[0.01, 0.11, 0.31, 0.61, 0.91])
     assert all(r["PG_dp_sp"] >= r["PG_edp_sp"] - 1e-9 for r in rows)
     # §5.3.1 : `max_µ PG^{dp,edp}` vaut 3.24 % à ε = 0.8 sur tout le balayage.
     assert max(r["PG_dp_edp"] for r in rows) < 100 * ref.MAX_PG_DP_EDP[0.8]["value"] + 0.5
