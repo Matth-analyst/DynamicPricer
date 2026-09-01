@@ -7,6 +7,7 @@ Lancement, depuis la racine du repo :
 
 import sys
 from pathlib import Path
+from time import perf_counter
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +16,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import native  # noqa: E402
 from metrics import profit_gain  # noqa: E402
 from mdp import solve_mdp  # noqa: E402
 from params import Problem  # noqa: E402
@@ -137,9 +139,11 @@ b = sb.slider("Pénurie `b`", 0.0, 0.5, 0.0, 0.005, format="%.3f", disabled=m_ba
 sb.header("Numérique")
 price_step = sb.select_slider("Pas des prix", [0.1, 0.05, 0.02, 0.01], 0.05)
 m_stock = sb.number_input("Troncature `m`", 20, 200, 60, 10)
+ENGINE = "Rust (natif)" if native.AVAILABLE else "Python"
 sb.caption(
     f"Balayage EDP : **{int(round(1 / a / price_step)) ** N}** vecteurs de prix. "
-    "Le coût croît en $(1/\\text{pas})^N$."
+    "Le coût croît en $(1/\\text{pas})^N$.  \n"
+    f"Moteur de balayage : **{ENGINE}**."
 )
 
 params = (N, eps, mu, h, q, a, K, b if m_backlog else 0.0, m_backlog, m_stock, price_step)
@@ -358,6 +362,7 @@ if not run:
         )
     st.stop()
 
+_t0 = perf_counter()
 with st.spinner("Résolution des programmes dynamiques…"):
     try:
         res = compute(params)
@@ -366,6 +371,7 @@ with st.spinner("Résolution des programmes dynamiques…"):
             st.error(f"Le calcul a échoué : {exc}")
         st.stop()
 
+_elapsed = perf_counter() - _t0
 env_names = [f"env {i + 1} (Λ={L:.2f})" for i, L in enumerate(res["Lam"])]
 
 if res["mode"] == "setup":
@@ -416,6 +422,7 @@ with t_res:
         ]), hide_index=True, use_container_width=True, height=215)
 
     st.caption(
+        f"Résolu en **{_elapsed:.2f} s** avec le moteur {ENGINE}. "
         f"Uniformisation Γ = {res['gamma']:.4f}. Ordre structurel attendu "
         "g_s ≤ g_sb ≤ g_edp ≤ g_dp et g_s ≤ g_sp ≤ g_edp ≤ g_dp : "
         f"{'vérifié' if all(gains[u] <= gains[v] + 1e-9 for u, v in [('s','sb'),('sb','edp'),('edp','dp'),('s','sp'),('sp','edp')]) else '**violé**'}."
