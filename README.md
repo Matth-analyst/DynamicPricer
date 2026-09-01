@@ -61,14 +61,55 @@ dynamicpricer/
 │   ├── strategies.py   # les cinq stratégies S, SB, SP, EDP, DP
 │   ├── metrics.py      # profit gains et contrôles de cohérence
 │   ├── validation.py   # comparaison aux tables publiées (Étape 3)
+│   ├── native.py       # chargement optionnel du moteur Rust
+│   ├── sensitivity.py  # balayages de l'Étape 4
 │   └── reference_gayon2009.py  # valeurs publiées, transcrites du papier
 ├── notebooks/
 │   ├── 01_validation.ipynb    # reproduction des Tables 3-5 et Figure 2
 │   └── 02_sensitivity.ipynb   # balayages µ, h, ε, q
 ├── dashboard/app.py
+├── rust/               # moteur natif optionnel (balayage de prix)
 ├── tests/
 └── report/
 ```
+
+## Moteur natif Rust (optionnel)
+
+Le balayage de prix de la stratégie EDP coûte `(1/pas)^N` résolutions. À `N = 2` c'est
+supportable ; à `N = 4` au pas 0.05, cela fait 130 321 instances et le moteur Python y
+passe une douzaine de minutes. Un moteur natif prend le relais quand il est compilé :
+
+```bash
+cd rust && cargo build --release
+```
+
+Rien d'autre à faire : `src/native.py` détecte l'artefact, et `solve_batch` retombe
+silencieusement sur Python s'il est absent. Le moteur Python reste la **référence** —
+c'est lui qui est validé contre le papier — et `tests/test_native.py` fait tenir cette
+validation au portage en vérifiant leur équivalence.
+
+Le gain ne vient pas principalement du langage. La matrice d'évaluation `I − P` est
+**bloc-tridiagonale** : la production couple le bloc `x` à `x+1`, la demande à `x−1`, et
+l'environnement reste dans le bloc. Un algorithme de Thomas par blocs coûte `O(X·N³)` là
+où la résolution dense coûte `O((X·N)³)` — pour `N=4`, `X=61`, environ 12 000 opérations
+contre 4,8 millions. C'est numpy qui ne sait pas exprimer cela, faute de solveur
+bloc-tridiagonal par lot ; Rust est le véhicule, la structure est le levier. `rayon`
+répartit ensuite les instances sur les cœurs.
+
+| balayage EDP | Python | Rust | |
+|---|---|---|---|
+| `N=2`, pas 0.01, `ε=0.8` (9 801) | 47,2 s | 0,8 s | **×59** |
+| `N=4`, pas 0.1 (6 561) | 35,4 s | 1,2 s | **×29** |
+| `N=4`, pas 0.05 (130 321) | ~12 min | 25,0 s | **×28** |
+
+À l'optimum, les deux moteurs donnent le même gain, la même politique et le même prix,
+et les quatre instances de référence retrouvent exactement les Tables 4 et 5.
+
+Une nuance vérifiée et assumée : sur des instances **non optimales**, les base-stocks
+peuvent différer d'une ou deux unités entre les deux moteurs. Les gains y sont alors
+rigoureusement égaux (écarts de l'ordre de `1e-17`) — ce sont des politiques ex æquo,
+que les deux implémentations ne départagent pas de la même façon. Un test dédié vérifie
+que toute divergence de seuil s'accompagne d'une égalité de gain.
 
 ## Note de performance : itération sur les politiques
 

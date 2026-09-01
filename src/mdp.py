@@ -33,6 +33,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+import native
 from params import Problem
 
 # ---------------------------------------------------------------------------
@@ -665,6 +666,12 @@ def _probe_truncation(pb: Problem, lam_n: np.ndarray, gamma: float, max_sweeps: 
 def _solve_batch_truncated(pb: Problem, lam_n: np.ndarray, gamma: float, max_sweeps: int):
     """Itération sur les politiques à troncature fixée, sur le problème normalisé.
 
+    Délègue au moteur natif quand il est disponible (`src/native.py`). Celui-ci exploite
+    la structure **bloc-tridiagonale** de `I - P` — la production couple le bloc `x` à
+    `x+1`, la demande à `x-1`, l'environnement reste dans le bloc — pour un coût en
+    `O(X·N³)` au lieu de `O((X·N)³)`, et répartit les instances sur les cœurs. Le
+    chemin Python ci-dessous reste la référence et le repli.
+
     L'arrêt est **par élément**, et pas seulement sur la stabilité de la politique.
     Deux base-stocks voisins peuvent en effet donner exactement le même gain — c'est
     fréquent quand le coût de stockage est faible — et le départage bascule alors
@@ -675,6 +682,9 @@ def _solve_batch_truncated(pb: Problem, lam_n: np.ndarray, gamma: float, max_swe
     politiques : un tour qui n'améliore plus signale la convergence, et l'élément est
     figé sur la meilleure politique rencontrée.
     """
+    if native.AVAILABLE:
+        return native.solve_batch_truncated(pb, lam_n, gamma, max_sweeps)
+
     P_free, r_free = _policy_free_dynamics(pb, lam_n)
     B = lam_n.shape[1]
     s = np.zeros((pb.N, B), dtype=int)

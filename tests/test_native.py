@@ -1,0 +1,116 @@
+"""Équivalence entre le moteur natif Rust et le moteur Python de référence.
+
+Le natif n'a d'intérêt que s'il donne la même réponse : c'est le moteur Python qui est
+validé contre le papier (Étape 3), et le portage n'hérite de cette validation que par
+l'équivalence testée ici.
+
+Ces tests sont ignorés si le module natif n'a pas été compilé — `cd rust && cargo build
+--release` — pour que la suite reste exécutable sans chaîne Rust.
+"""
+
+import numpy as np
+import pytest
+
+import mdp
+import native
+from params import Problem
+from strategies import _demand_from_prices, _price_vector_grid, solve_edp
+
+pytestmark = pytest.mark.skipif(not native.AVAILABLE, reason="moteur natif non compilé")
+
+
+def _both(pb, lam):
+    """Résout le même lot par les deux moteurs, à troncature et normalisation égales."""
+    npb, gamma = pb.normalized()
+    lam_n = np.asarray(lam, dtype=float) / gamma
+    rust = native.solve_batch_truncated(npb, lam_n, gamma, 100)
+    P_free, r_free = mdp._policy_free_dynamics(npb, lam_n)
+    # On rejoue la boucle Python sans passer par le dispatch, qui irait au natif.
+    B = lam_n.shape[1]
+    s = np.zeros((npb.N, B), dtype=int)
+    s_best, g_best, g_prev = s.copy(), np.full(B, -np.inf), np.full(B, -np.inf)
+    done = np.zeros(B, dtype=bool)
+    for _ in range(100):
+        g_n, v = mdp._policy_evaluation(npb, s, P_free, r_free)
+        better = g_n >= g_best
+        s_best[:, better] = s[:, better]
+        g_best[better] = g_n[better]
+        s_next = mdp.base_stock_levels(v, npb)
+        stable = (s_next == s).all(axis=0)
+        stalled = g_n <= g_prev + mdp._GAIN_STALL_TOL * np.maximum(1.0, np.abs(g_n))
+        done |= stable | stalled
+        if done.all():
+            break
+        g_prev = g_n
+        s = np.where(done[None], s, s_next)
+    return rust, (g_best * gamma, s_best)
+
+
+@pytest.mark.parametrize("eps", [0.0, 0.3, 0.8])
+def test_gains_match_to_machine_precision(eps):
+    """Le gain moyen doit coïncider instance par instance, pas seulement à l'optimum."""
+    pb = Problem.two_env(eps=eps, m_stock=40, price_step=0.05)
+    lam = _demand_from_prices(pb, _price_vector_grid(pb))
+    (g_rust, _), (g_py, _) = _both(pb, lam)
+    assert g_rust == pytest.approx(g_py, abs=1e-12)
+
+
+def test_optimum_agrees_exactly():
+    """Ce qui compte en pratique : même argmax, même gain, même politique retenue.
+
+    Les base-stocks peuvent différer sur des instances **non optimales** : plusieurs
+    seuils y donnent exactement le même gain (écarts de l'ordre de 1e-17), et les deux
+    moteurs ne tranchent pas l'égalité de la même façon. Les deux politiques sont alors
+    optimales toutes les deux ; seule la politique retenue à l'optimum est observable
+    dans les résultats.
+    """
+    pb = Problem.two_env(eps=0.6, m_stock=40, price_step=0.05)
+    lam = _demand_from_prices(pb, _price_vector_grid(pb))
+    (g_rust, s_rust), (g_py, s_py) = _both(pb, lam)
+    i, j = int(np.argmax(g_rust)), int(np.argmax(g_py))
+    assert i == j
+    assert g_rust[i] == pytest.approx(g_py[j], abs=1e-12)
+    assert tuple(s_rust[:, i]) == tuple(s_py[:, j])
+
+
+def test_tied_policies_are_genuinely_equivalent():
+    """Là où les seuils diffèrent, les gains sont rigoureusement égaux.
+
+    C'est ce qui établit que la divergence est une égalité de valeur et non une erreur :
+    si l'un des deux moteurs se trompait, l'écart de gain serait visible.
+    """
+    pb = Problem.two_env(eps=0.6, m_stock=40, price_step=0.05)
+    lam = _demand_from_prices(pb, _price_vector_grid(pb))
+    (g_rust, s_rust), (g_py, s_py) = _both(pb, lam)
+    differing = (s_rust != s_py).any(axis=0)
+    assert np.abs(g_rust[differing] - g_py[differing]).max(initial=0.0) < 1e-12
+
+
+def test_backlog_and_production_cost_are_honoured():
+    """Backlog (`x < 0`) et coût de production unitaire doivent être pris en compte."""
+    pb = Problem.two_env(eps=0.6, m_stock=30, m_backlog=6, b=0.02, c=0.05, price_step=0.1)
+    lam = _demand_from_prices(pb, _price_vector_grid(pb))
+    (g_rust, _), (g_py, _) = _both(pb, lam)
+    assert g_rust == pytest.approx(g_py, abs=1e-12)
+
+
+def test_three_environments_match():
+    """La structure bloc-tridiagonale doit rester correcte pour `N > 2`."""
+    pb = Problem(
+        Lam=(0.5, 1.0, 1.5),
+        Q=((0.0, 0.01, 0.0), (0.01, 0.0, 0.01), (0.0, 0.01, 0.0)),
+        m_stock=30, price_step=0.1,
+    )
+    lam = _demand_from_prices(pb, _price_vector_grid(pb))
+    (g_rust, _), (g_py, _) = _both(pb, lam)
+    assert g_rust == pytest.approx(g_py, abs=1e-12)
+
+
+def test_edp_still_reproduces_the_paper_through_the_native_path():
+    """Bout en bout : la stratégie EDP doit toujours donner les valeurs publiées."""
+    import reference_gayon2009 as ref
+
+    pb = Problem.two_env(eps=0.6, m_stock=80)
+    sol = solve_edp(pb)
+    assert sol.base_stock == ref.TABLE_4[0.6]["edp"]
+    assert tuple(round(float(p), 2) for p in sol.prices) == ref.TABLE_5[0.6]["edp"]
