@@ -40,9 +40,24 @@ st.markdown("""
   [data-testid="stHorizontalBlock"] { gap: 1rem; }
   [data-testid="stElementContainer"] { margin: 0 !important; }
 
-  h1 { font-size: 24px !important; font-weight: 700; margin: 0 0 .15rem !important; letter-spacing: -.015em; }
-  h2 { font-size: 17px !important; margin: .8rem 0 .3rem !important; }
-  h3, h4 { font-size: 14.5px !important; font-weight: 600; margin: .55rem 0 .2rem !important; }
+  /* Titres. Deux réglages internes de Streamlit se combinent ici : un `padding`
+     (20/16 px sur h1) que `margin` seul n'annule pas, et une marge basse **négative**
+     de -16 px appliquée au conteneur du titre pour compenser ce padding. Retirer le
+     padding sans neutraliser la marge négative fait remonter l'élément suivant
+     par-dessus le titre — c'est ce qui faisait se chevaucher titre et description. */
+  h1, h2, h3, h4 { padding: 0 !important; }
+
+  /* Streamlit applique partout une marge basse de -16 px sur les conteneurs markdown,
+     pour compenser la marge basse des paragraphes qu'ils contiennent. Le bloc déborde
+     alors sa propre boîte, et l'élément suivant remonte par-dessus — c'est ce qui
+     faisait chevaucher la description avec la barre d'onglets. On annule les deux
+     marges et l'on confie l'espacement au `gap` du conteneur flex. */
+  [data-testid="stMarkdownContainer"], [data-testid="stCaptionContainer"] { margin-bottom: 0 !important; }
+  [data-testid="stMarkdownContainer"] > p:last-child,
+  [data-testid="stCaptionContainer"] p:last-child { margin-bottom: 0 !important; }
+  h1 { font-size: 23px !important; font-weight: 700; margin: 0 0 .2rem !important; letter-spacing: -.015em; }
+  h2 { font-size: 16px !important; margin: .75rem 0 .3rem !important; }
+  h3, h4 { font-size: 14px !important; font-weight: 600; margin: .5rem 0 .2rem !important; }
   p, li { font-size: 13px !important; line-height: 1.52; margin-bottom: .3rem; }
   hr { margin: .5rem 0 !important; }
 
@@ -51,11 +66,19 @@ st.markdown("""
     text-transform: uppercase; opacity: .75; }
   [data-testid="stMetricDelta"] { font-size: 12px !important; }
 
-  [data-testid="stSidebar"] { width: 288px !important; }
+  /* Sidebar. Chaque curseur faisait 68 px : 18 px de padding de part et d'autre d'une
+     piste de 4 px, plus une barre min/max de 22 px. Le contenu débordait la fenêtre.
+     On resserre la piste et l'on retire les bornes — la valeur courante reste affichée
+     au-dessus du curseur, et les plages sont sans surprise. */
+  [data-testid="stSidebar"] { width: 264px !important; }
   [data-testid="stSidebar"] label p { font-size: 12px !important; margin-bottom: 0 !important; }
-  [data-testid="stSidebar"] h2 { font-size: 11.5px !important; text-transform: uppercase;
-    letter-spacing: .1em; opacity: .65; margin: .9rem 0 .25rem !important; }
-  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .2rem; }
+  [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { margin-bottom: 1px !important; }
+  [data-testid="stSidebar"] [data-testid="stSlider"] > div > div:first-child { padding: 8px 0 !important; }
+  [data-testid="stSidebar"] [data-testid="stSliderTickBar"] { display: none !important; }
+  [data-testid="stSidebar"] h2 { font-size: 11px !important; text-transform: uppercase;
+    letter-spacing: .1em; opacity: .6; margin: .7rem 0 .2rem !important; }
+  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .15rem; }
+  [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p { font-size: 10.5px !important; }
 
   [data-testid="stTabs"] button p { font-size: 13px !important; }
   [data-testid="stCaptionContainer"] p { font-size: 11.5px !important; line-height: 1.5; opacity: .82; }
@@ -112,12 +135,14 @@ def compute(params: tuple):
 # Paramètres
 # ---------------------------------------------------------------------------
 
-st.title("DynamicPricer")
-st.caption(
-    "Tarification et production d'un système make-to-stock à capacité limitée sous demande "
-    "modulée par une chaîne de Markov. Modèle : Gayon, Talay-Değirmenci, Karaesmen & Örmeci "
-    "(2009), *Probability in the Engineering and Informational Sciences* 23(2), 205-230."
-)
+head_left, head_right = st.columns([6, 1], vertical_alignment="center")
+with head_left:
+    st.title("DynamicPricer")
+    st.caption(
+        "Tarification et production d'un système make-to-stock à capacité limitée sous "
+        "demande modulée par une chaîne de Markov. Modèle : Gayon, Talay-Değirmenci, "
+        "Karaesmen & Örmeci (2009), *PEIS* 23(2), 205-230."
+    )
 
 sb = st.sidebar
 sb.header("Système")
@@ -142,7 +167,8 @@ sb.caption(
 )
 
 params = (N, eps, mu, h, q, a, K, b if m_backlog else 0.0, m_backlog, m_stock, price_step)
-run = st.button("Calculer", type="primary")
+with head_right:
+    run = st.button("Calculer", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # Onglets « Modèle » et « Méthode » — disponibles sans calcul
