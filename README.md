@@ -21,6 +21,20 @@ pip install -r requirements.txt
 pytest
 ```
 
+La validation contre les valeurs publiées (Étape 3) porte la grille de prix complète sur
+quatre instances et prend quelques minutes ; elle est donc marquée `slow` et exclue par
+défaut. Pour la lancer :
+
+```bash
+pytest -m slow
+```
+
+Pour recalculer les résultats de validation et alimenter le notebook :
+
+```bash
+python -m validation
+```
+
 ## Dashboard
 
 ```bash
@@ -33,9 +47,11 @@ streamlit run dashboard/app.py
 dynamicpricer/
 ├── src/
 │   ├── params.py       # dataclass Problem : tous les paramètres du modèle
-│   ├── mdp.py          # opérateurs T0/T2/Tλ + value iteration average-cost
+│   ├── mdp.py          # opérateurs T0/T2/Tλ, itération sur les politiques
 │   ├── strategies.py   # les cinq stratégies S, SB, SP, EDP, DP
-│   └── metrics.py      # profit gains et contrôles de cohérence
+│   ├── metrics.py      # profit gains et contrôles de cohérence
+│   ├── validation.py   # comparaison aux tables publiées (Étape 3)
+│   └── reference_gayon2009.py  # valeurs publiées, transcrites du papier
 ├── notebooks/
 │   ├── 01_validation.ipynb    # reproduction des Tables 3-5 et Figure 2
 │   └── 02_sensitivity.ipynb   # balayages µ, h, ε, q
@@ -146,7 +162,7 @@ sont insensibles à la troncature (`m` de 60 à 400) et à la tolérance (`1e-5`
 | 0 — Cadrage & structure du repo | ✅ |
 | 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ |
 | 2 — Cinq stratégies de tarification | ✅ |
-| 3 — Validation | ⬜ |
+| 3 — Validation | ✅ |
 | 4 — Analyse de sensibilité | ⬜ |
 | 5 — Dashboard | ⬜ |
 | 6 — Rapport & présentation | ⬜ |

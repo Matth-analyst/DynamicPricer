@@ -6,6 +6,8 @@ le reste attend l'Étape 3.
 
 from __future__ import annotations
 
+import numpy as np
+
 
 def profit_gain(g_phi: float, g_ref: float) -> float:
     """Profit gain relatif `PG^{φ,φ'} = (g^φ - g^{φ'}) / g^{φ'}`.
@@ -31,6 +33,23 @@ def check_ordering(gains: dict[str, float], tol: float = 1e-9) -> bool:
     )
 
 
-def recurrent_states(base_stock: tuple[int, ...]) -> range:
-    """Ensemble des niveaux de stock récurrents : `0 <= x <= max_e s_e` (§5.1)."""
-    raise NotImplementedError("Étape 3")
+def recurrent_states(base_stock, x_min: int = 0) -> np.ndarray:
+    """Niveaux de stock récurrents : `x_min <= x <= max_e s_e` (§5.1).
+
+    Le papier restreint toutes ses statistiques à cet ensemble. C'est essentiel pour
+    les prix DP : au-delà du plus grand base-stock, les états ne sont jamais visités
+    et les prix qu'on y lirait sont dénués de sens — c'est ce qui explique qu'un
+    minimum pris sur toute la grille tronquée ne coïnciderait pas avec la Table 5.
+    """
+    return np.arange(x_min, max(base_stock) + 1)
+
+
+def dp_price_range(prices: np.ndarray, base_stock, x_min: int = 0):
+    """`(p_e, p̄_e)` par environnement sur les états récurrents (légende Table 5).
+
+    Le prix en `x = x_min` vaut `NaN` (demande perdue, prix sans effet) et est donc
+    exclu ; par le Théorème 2 le maximum est atteint en `x = x_min + 1`.
+    """
+    rec = recurrent_states(base_stock, x_min)[1:] - x_min
+    window = prices[rec]
+    return list(zip(window.min(axis=0), window.max(axis=0)))

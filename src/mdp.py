@@ -280,6 +280,7 @@ def solve_mdp(
     lam=None,
     price_menu: np.ndarray | None = None,
     force_setup_model: bool = False,
+    method: str = "auto",
 ) -> MDPSolution:
     """Value iteration relative en gain moyen (Appendix E : 5 décimales).
 
@@ -297,12 +298,41 @@ def solve_mdp(
         Force l'espace d'état augmenté `(x, e, σ)` même quand `K = 0`. Sert au test
         de non-régression de l'Étape 1.2 : les deux modèles doivent alors coïncider
         exactement. Sans intérêt en usage normal — le chemin `(x, e)` est plus rapide.
+    method :
+        `"auto"` (défaut) : itération sur les politiques si `K = 0`, value iteration
+        sinon — le modèle à mise en route n'a pas de variante en politiques.
+        `"pi"` / `"vi"` forcent l'une ou l'autre, ce qui sert à la validation croisée.
+        L'itération sur les politiques est exacte ; la value iteration s'arrête à `tol`.
 
     Returns
     -------
     MDPSolution, dépaquetable en `(g, v, base_stock)`.
     """
     npb, gamma = pb.normalized()
+    setup_model = npb.K > 0 or force_setup_model
+    if method not in ("auto", "pi", "vi"):
+        raise ValueError("`method` doit valoir 'auto', 'pi' ou 'vi'.")
+    if setup_model and method == "pi":
+        raise ValueError(
+            "L'itération sur les politiques ne couvre pas le modèle à coût de mise en "
+            "route (l'état augmenté `σ` n'y est pas traité)."
+        )
+    if not setup_model and method in ("auto", "pi"):
+        lam_n = None if lam is None else np.asarray(lam, dtype=float) / gamma
+        if lam_n is not None:
+            Lam = np.asarray(npb.Lam, dtype=float)
+            if np.any(lam_n < -1e-12) or np.any(lam_n > Lam + 1e-12):
+                raise ValueError("Chaque λ_e doit appartenir à [0, Λ_e].")
+            lam_n = np.clip(lam_n, 0.0, Lam)
+        g, v, base_stock, prices, sweeps = _solve_policy_iteration(
+            npb, gamma, price_menu, _MAX_POLICY_SWEEPS, lam_n
+        )
+        return MDPSolution(
+            g=g, v=v, base_stock=base_stock, sS=None,
+            prices=None if lam is not None else prices,
+            n_iter=sweeps, converged=True,
+        )
+
     A = env_matrix(npb)
     h_vec = npb.holding_cost(npb.states)
     lam_n = None if lam is None else np.asarray(lam, dtype=float) / gamma
@@ -313,7 +343,6 @@ def solve_mdp(
             raise ValueError("Chaque λ_e doit appartenir à [0, Λ_e].")
         lam_n = np.clip(lam_n, 0.0, Lam)
 
-    setup_model = npb.K > 0 or force_setup_model
     shape = (npb.states.size, npb.N, 2) if setup_model else (npb.states.size, npb.N)
     bellman = _bellman_setup if setup_model else _bellman_unit
 
@@ -711,3 +740,144 @@ def solve_batch(
         if s.max() < m - 1 or m >= npb.m_stock:
             return g, s
         m = min(2 * m, npb.m_stock)
+
+
+# ---------------------------------------------------------------------------
+# Itération sur les politiques pour la stratégie DP (prix dépendant de l'état)
+# ---------------------------------------------------------------------------
+
+
+def _state_dependent_chain(pb: Problem, lam: np.ndarray, s: np.ndarray):
+    """Chaîne uniformisée d'une politique DP : `(P (n, n), r (n))`, `n = X·N`.
+
+    Contrairement à `_policy_free_dynamics`, le taux de demande `lam` est ici indexé
+    par l'état `(x, e)` et non par le seul environnement : c'est ce qui distingue la
+    stratégie DP des quatre autres. Rien n'est donc précalculable d'un tour à l'autre,
+    mais DP ne demande qu'une résolution par instance, pas un balayage.
+    """
+    x, N = pb.states, pb.N
+    X = x.size
+    n = X * N
+    Q = np.asarray(pb.Q, dtype=float).copy()
+    np.fill_diagonal(Q, 0.0)
+    Lam = np.asarray(pb.Lam, dtype=float)
+
+    P = np.zeros((n, n))
+    r = np.zeros(n)
+    k = np.arange(n).reshape(X, N)
+
+    for e in range(N):
+        rows = k[:, e]
+        # Production : une unité au taux µ tant que x < s_e.
+        a = (x < s[e]).astype(int)
+        P[rows, k[np.clip(np.arange(X) + a, 0, X - 1), e]] += pb.mu
+        r[rows] -= pb.mu * pb.c * a
+
+        # Environnement : transitions réelles et masse fictive (éq. 2).
+        for j in range(N):
+            if j != e:
+                P[rows, k[:, j]] += Q[e, j]
+        P[rows, rows] += Lam.sum() - Lam[e] + Q.sum() - Q[e].sum()
+
+        # Demande, au taux propre à chaque état ; perdue à la borne basse.
+        lam_e = lam[1:, e]
+        P[rows[1:], k[:-1, e]] += lam_e
+        P[rows[1:], rows[1:]] += Lam[e] - lam_e
+        P[rows[0], rows[0]] += Lam[e]
+        r[rows[1:]] += lam_e * (1.0 - lam_e / Lam[e]) / pb.a
+
+    r -= np.tile(pb.holding_cost(x)[:, None], (1, N)).reshape(n)
+    return P, r
+
+
+def _greedy_demand(v: np.ndarray, pb: Problem, price_menu: np.ndarray | None):
+    """Taux de demande glouton vis-à-vis de `v`, et prix associés (Appendix E, éq. 11).
+
+    Le maximiseur de `r_e(λ) - λ·Δv(x-1,e)` est `λ = Λ_e(1 - a·Δv)/2`, soit
+    `p = clip((1 + a·Δv)/(2a), 0, 1/a)`. En `x = x_min` la demande est perdue : le
+    prix n'a aucun effet et vaut `NaN` par convention.
+    """
+    Lam = np.asarray(pb.Lam, dtype=float)
+    lam = np.zeros_like(v)
+    prices = np.full(v.shape, np.nan)
+    delta = v[1:] - v[:-1]
+
+    if price_menu is None:
+        p = np.clip((1.0 + pb.a * delta) / (2.0 * pb.a), 0.0, pb.p_max)
+    else:
+        menu = np.asarray(price_menu, dtype=float)[:, None, None]
+        cand = Lam * (1.0 - pb.a * menu)
+        p = menu.reshape(-1)[np.argmax(cand * menu - cand * delta[None], axis=0)]
+
+    lam[1:] = Lam * (1.0 - pb.a * p)
+    prices[1:] = p
+    return lam, prices
+
+
+#: Seuil absolu de stabilisation des taux de demande (cas bien conditionnés).
+_LAM_ABS_TOL = 1e-12
+
+#: Seuil relatif de non-amélioration du gain (filet pour les cas mal conditionnés).
+_GAIN_STALL_TOL = 1e-12
+
+#: Plafond de tours d'itération sur les politiques : elle converge en une poignée,
+#: donc dépasser ce seuil signale un problème plutôt qu'une lenteur.
+_MAX_POLICY_SWEEPS = 200
+
+
+def _solve_policy_iteration(
+    pb: Problem, gamma: float, price_menu, max_sweeps: int, lam_fixed=None
+):
+    """Itération sur les politiques pour une instance unique, problème déjà normalisé.
+
+    `lam_fixed=None` → stratégie DP : la politique est le couple (base-stocks, fonction
+    de prix), et les deux se relisent dans la fonction de valeur — les seuils par
+    concavité, les prix par la forme fermée. Avec des prix continus, l'itération est
+    une méthode de Newton sur l'équation de Bellman, et l'arrêt porte sur la
+    stabilisation conjointe des seuils et des taux.
+
+    `lam_fixed` donné → stratégies S/SB/SP/EDP : seuls les seuils sont améliorés.
+    """
+    X, N = pb.states.size, pb.N
+    n = X * N
+    Lam = np.asarray(pb.Lam, dtype=float)
+
+    s = np.zeros(N, dtype=int)
+    frozen = lam_fixed is not None
+    if frozen:
+        lam = np.tile(np.asarray(lam_fixed, dtype=float), (X, 1))
+        prices = np.tile((1.0 - np.asarray(lam_fixed) / Lam) / pb.a, (X, 1))
+    else:
+        lam = np.tile(Lam / 2.0, (X, 1))  # p = p*, l'optimum sans coût de stockage
+        prices = np.full((X, N), np.nan)
+
+    g_prev = -np.inf
+    for sweep in range(1, max_sweeps + 1):
+        P, r = _state_dependent_chain(pb, lam, s)
+        M = np.zeros((n + 1, n + 1))
+        M[:n, :n] = np.eye(n) - P
+        M[:n, n] = 1.0
+        M[n, 0] = 1.0
+        rhs = np.zeros(n + 1)
+        rhs[:n] = r
+        sol = np.linalg.solve(M, rhs)
+        v = sol[:n].reshape(X, N)
+        g_n = sol[n]
+
+        stalled = g_n <= g_prev + _GAIN_STALL_TOL * max(1.0, abs(g_n))
+        g_prev = max(g_prev, g_n)
+        s_next = base_stock_levels(v, pb)
+        if frozen:
+            if np.array_equal(s_next, s):
+                return g_n * gamma, v, tuple(int(i) for i in s_next), prices, sweep
+            s = s_next
+            continue
+        lam_next, prices = _greedy_demand(v, pb, price_menu)
+        settled = np.all(np.abs(lam_next - lam) <= _LAM_ABS_TOL)
+        if np.array_equal(s_next, s) and (settled or stalled):
+            return g_n * gamma, v, tuple(int(i) for i in s_next), prices, sweep
+        s, lam = s_next, lam_next
+
+    raise RuntimeError(
+        f"L'itération sur les politiques n'a pas convergé en {max_sweeps} tours."
+    )

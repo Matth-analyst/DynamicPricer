@@ -1,3 +1,10 @@
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# La validation contre le papier (Étape 3) porte la grille de prix complète sur quatre
+# instances : quelques minutes. Elle est donc exclue par défaut et se lance par
+# `pytest -m slow`.
+addopts = "-m 'not slow'"
+markers = [
+    "slow: validation contre les valeurs publiées (Étape 3), lente par nature",
+]
