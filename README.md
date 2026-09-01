@@ -44,6 +44,48 @@ dynamicpricer/
 └── report/
 ```
 
+## Note de performance : itération sur les politiques
+
+Le poste de calcul dominant est le balayage de prix de la stratégie EDP — `(1/pas)^N`
+programmes dynamiques, soit 99² = 9801 au pas de 0.01 de l'Appendix E.
+
+En **value iteration**, ce balayage ne terminait pas en un temps raisonnable. La cause
+n'est pas l'implémentation : les opérateurs sont vectorisés, et le coût part en nombre
+d'itérations. Avec `q = 0.01`, les transitions d'environnement sont deux ordres de
+grandeur plus rares que les arrivées de demande, le mélange de la chaîne est très lent
+et le module de contraction en span vaut à peu près `1 - O(q)` — il faut donc quelques
+milliers d'itérations, quel que soit le langage.
+
+À prix fixé, la politique optimale est pourtant décrite par `N` entiers seulement (les
+base-stocks, Théorème 1). L'**itération sur les politiques** exploite cette petitesse :
+elle évalue chaque politique exactement en résolvant `(I - P)v + g·1 = r`, puis
+l'améliore en relisant les seuils dans `v`. Elle converge en 5 à 8 tours.
+
+Trois points font l'essentiel du gain :
+
+1. la part de la chaîne indépendante de la politique (environnement, demande) est
+   précalculée une fois au lieu d'être reconstruite à chaque tour ;
+2. la troncature de l'espace d'état est calibrée par une **sonde** sur quelques dizaines
+   de vecteurs de prix, au lieu de partir petit et doubler à l'aveugle — une troncature
+   trop courte oblige à tout refaire, et le coût d'une résolution est cubique en la
+   taille de l'état ;
+3. tronquer au-dessus du base-stock optimal n'est pas une approximation : sous une
+   politique base-stock, les états supérieurs sont transitoires.
+
+Balayage EDP complet à `ε = 0.8` (9801 combinaisons, `m_stock = 60`) :
+
+| méthode | temps |
+|---|---|
+| value iteration | n'aboutit pas (arrêtée après plusieurs minutes) |
+| itération sur les politiques, version initiale | 87 s |
+| + précalcul et indexation directe | 59 s |
+| + sonde de troncature | **17,7 s** |
+
+L'itération sur les politiques est aussi **plus exacte** : elle résout l'équation
+d'évaluation au lieu de l'approcher, et coïncide avec l'évaluateur stationnaire
+`average_profit` au chiffre près, là où la value iteration s'en écarte de l'ordre de sa
+tolérance (`1e-5`). `solve_batch_vi` est conservée pour la validation croisée.
+
 ## Modèle et limites connues
 
 ### `K` est un coût de mise en route, pas un coût de commande par lots
@@ -70,11 +112,22 @@ Les deux validations internes passent : `K = 0` redonne **exactement** l'Étape 
 (`g` identique à `1e-12`, bande dégénérée en `(s_e, s_e)`), et la bande s'élargit
 pendant que `g` décroît à mesure que `K` augmente.
 
-### Écarts résiduels avec la Table 5 du papier
+### Concordance avec les tables publiées
 
-Le solveur reproduit **exactement** la Table 4 (base-stocks DP) pour
-`ε ∈ {0, 0.3, 0.6, 0.8}` : `(17,17)`, `(12,20)`, `(7,22)`, `(3,23)`. Sur la Table 5,
-deux valeurs isolées diffèrent, à confirmer à l'Étape 3 :
+Comparaison directe aux Tables 3 à 5 pour `ε ∈ {0, 0.3, 0.6, 0.8}`, `µ = 0.11`,
+au pas de prix 0.01 de l'Appendix E. La validation formelle est l'objet de l'Étape 3 ;
+ce qui suit est l'état constaté à l'issue de l'Étape 2.
+
+* **Table 4 — base-stocks : les 16 valeurs concordent exactement**, pour les cinq
+  stratégies et les quatre valeurs de `ε`.
+* **Table 5 — prix : toutes les valeurs de S, SB, SP et EDP concordent exactement**
+  (par exemple `p^edp = (0.57, 0.84)` et `p^sb = (0.55, 0.84)` à `ε = 0.8`).
+* **Table 3 — profit gains : écart maximum de 0.2 point** (`PG^{dp,s} = 15.4 %`
+  contre 15.2 % publié à `ε = 0.8`), soit ~1.3 % en relatif, dans la tolérance visée.
+  Le biais est systématiquement positif et de l'ordre de l'arrondi du papier, qui ne
+  publie qu'une décimale.
+
+Deux valeurs de prix **DP** restent en écart, déjà relevées à l'Étape 1 :
 
 | | papier | solveur |
 |---|---|---|
@@ -92,7 +145,7 @@ sont insensibles à la troncature (`m` de 60 à 400) et à la tolérance (`1e-5`
 |---|---|
 | 0 — Cadrage & structure du repo | ✅ |
 | 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ |
-| 2 — Cinq stratégies de tarification | ⬜ |
+| 2 — Cinq stratégies de tarification | ✅ |
 | 3 — Validation | ⬜ |
 | 4 — Analyse de sensibilité | ⬜ |
 | 5 — Dashboard | ⬜ |

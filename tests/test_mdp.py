@@ -293,3 +293,90 @@ def test_backlog_penalty_lowers_the_average_profit():
     weak = solve_mdp(Problem.two_env(eps=0.6, m_stock=60, m_backlog=8, b=0.02), lam=lam)
     strong = solve_mdp(Problem.two_env(eps=0.6, m_stock=60, m_backlog=8, b=0.5), lam=lam)
     assert strong.g < weak.g
+
+
+# ---------------------------------------------------------------------------
+# Étape 2 — résolution en lot et évaluation exacte
+# ---------------------------------------------------------------------------
+
+
+def test_exact_evaluation_agrees_with_value_iteration():
+    """Deux méthodes indépendantes doivent donner le même gain moyen.
+
+    `solve_mdp` itère l'opérateur de Bellman ; `average_profit` résout `πQ = 0` sur
+    le générateur en temps continu. Leur accord valide simultanément l'uniformisation,
+    la normalisation du gain et la construction du générateur.
+    """
+    from mdp import average_profit
+
+    pb = Problem.two_env(eps=0.6, m_stock=60, tol=1e-10)
+    for lam in ([0.25, 0.6], [0.1, 0.9], [0.35, 0.35]):
+        sol = solve_mdp(pb, lam=np.array(lam))
+        assert average_profit(pb, np.array(lam), sol.base_stock) == pytest.approx(
+            sol.g, abs=1e-9
+        )
+
+
+def test_exact_evaluation_is_maximised_at_the_optimal_base_stock():
+    """La politique issue de la value iteration doit battre tous les autres seuils."""
+    from mdp import average_profit
+
+    pb = Problem.two_env(eps=0.6, m_stock=40, tol=1e-10)
+    lam = np.array([0.25, 0.6])
+    best = solve_mdp(pb, lam=lam)
+    for s_L in range(0, 15):
+        for s_H in range(0, 30):
+            assert average_profit(pb, lam, (s_L, s_H)) <= best.g + 1e-9
+
+
+def test_batch_solver_matches_the_single_solve():
+    """`solve_batch` doit reproduire `solve_mdp` sur chaque élément du lot."""
+    from mdp import solve_batch
+
+    pb = Problem.two_env(eps=0.6, m_stock=40)
+    lams = np.array([[0.25, 0.1, 0.35], [0.6, 0.9, 0.35]])  # (N, B)
+    g, base_stock = solve_batch(pb, lams)
+    for b in range(lams.shape[1]):
+        ref = solve_mdp(pb, lam=lams[:, b])
+        # Le lot s'arrête quand *tous* ses éléments ont convergé, la résolution simple
+        # dès que le sien l'est : les deux ne coupent pas à la même itération. L'écart
+        # attendu est donc borné par le critère d'arrêt, pas nul.
+        assert g[b] == pytest.approx(ref.g, abs=pb.tol)
+        assert tuple(base_stock[:, b]) == ref.base_stock
+
+
+def test_batch_solver_refuses_the_setup_cost_model():
+    from mdp import solve_batch
+
+    pb = Problem.two_env(eps=0.6, K=0.5, m_stock=40)
+    with pytest.raises(ValueError, match="K = 0"):
+        solve_batch(pb, np.array([[0.2], [0.5]]))
+
+
+def test_policy_iteration_agrees_with_value_iteration():
+    """Les deux solveurs en lot doivent converger vers le même optimum.
+
+    L'itération sur les politiques est la plus exacte des deux — elle résout
+    l'équation d'évaluation au lieu de l'approcher — donc l'écart attendu est borné
+    par la tolérance de la *value iteration*, pas par zéro.
+    """
+    from mdp import solve_batch, solve_batch_vi
+
+    pb = Problem.two_env(eps=0.6, m_stock=40)
+    lams = np.array([[0.25, 0.1, 0.35], [0.6, 0.9, 0.35]])
+    g_pi, s_pi = solve_batch(pb, lams)
+    g_vi, s_vi = solve_batch_vi(pb, lams)
+
+    assert g_pi == pytest.approx(g_vi, abs=pb.tol)
+    assert np.array_equal(s_pi, s_vi)
+
+
+def test_policy_iteration_matches_the_exact_evaluator():
+    """Le gain rendu doit être celui de la politique rendue, au chiffre près."""
+    from mdp import average_profit, solve_batch
+
+    pb = Problem.two_env(eps=0.6, m_stock=40)
+    lams = np.array([[0.25, 0.1], [0.6, 0.9]])
+    g, s = solve_batch(pb, lams)
+    for b in range(lams.shape[1]):
+        assert average_profit(pb, lams[:, b], s[:, b]) == pytest.approx(g[b], abs=1e-12)

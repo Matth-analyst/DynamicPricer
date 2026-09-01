@@ -132,6 +132,23 @@ class Problem:
         n = int(round(self.p_max / self.price_step))
         return np.linspace(0.0, self.p_max, n + 1)
 
+    @property
+    def search_price_grid(self) -> np.ndarray:
+        """Grille de prix privée de ses deux extrémités, utilisée par les balayages.
+
+        Le taux de revenu `r_e(λ) = λ·p_e(λ)` s'annule aux deux bouts — en `p = 0`
+        parce que le prix est nul, en `p = 1/a` parce que la demande l'est — donc
+        aucune des deux extrémités n'est jamais optimale et les exclure ne change
+        aucun argmax.
+
+        C'est en revanche indispensable numériquement : en `p = 1/a` la demande
+        disparaît, la chaîne dérive vers son base-stock et n'en repart jamais, et la
+        value iteration relative n'y converge plus. Un seul prix dégénéré suffirait à
+        bloquer tout un balayage en lot, qui n'aboutit que lorsque *tous* ses éléments
+        ont convergé.
+        """
+        return self.price_grid[1:-1]
+
     def is_birth_death(self) -> bool:
         """`True` si l'environnement est un processus de naissance-mort.
 
