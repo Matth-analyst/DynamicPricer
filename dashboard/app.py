@@ -32,58 +32,36 @@ st.set_page_config(page_title="DynamicPricer", layout="wide")
 
 st.markdown("""
 <style>
-  /* Densité : compact mais lisible. Les tailles sont en px absolus — un facteur
-     relatif se composerait avec l'échelle propre de Streamlit et deviendrait
-     illisible (le corps tombait à 9 px lors d'un premier essai). */
-  .block-container { padding: 1.5rem 2.2rem 1.2rem !important; max-width: 1600px; }
-  [data-testid="stVerticalBlock"] { gap: .35rem; }
-  [data-testid="stHorizontalBlock"] { gap: 1rem; }
-  [data-testid="stElementContainer"] { margin: 0 !important; }
+  /* Densité — obtenue par la typographie et le `gap` du flex uniquement.
+     Ne pas toucher au `padding` ni aux marges des titres : Streamlit leur applique
+     une marge basse négative de -16 px qui compense exactement ce padding. Y toucher
+     désaligne toute la colonne et fait chevaucher les blocs. De même, ne pas imposer
+     de largeur à la sidebar : cela casse sa mise en page responsive dans un panneau
+     étroit, où elle vient alors recouvrir le contenu principal. */
+  .block-container { padding-top: 1.6rem !important; padding-bottom: 1.2rem !important; }
+  [data-testid="stVerticalBlock"] { gap: .5rem; }
 
-  /* Titres. Deux réglages internes de Streamlit se combinent ici : un `padding`
-     (20/16 px sur h1) que `margin` seul n'annule pas, et une marge basse **négative**
-     de -16 px appliquée au conteneur du titre pour compenser ce padding. Retirer le
-     padding sans neutraliser la marge négative fait remonter l'élément suivant
-     par-dessus le titre — c'est ce qui faisait se chevaucher titre et description. */
-  h1, h2, h3, h4 { padding: 0 !important; }
+  h1 { font-size: 24px !important; letter-spacing: -.015em; }
+  h2 { font-size: 17px !important; }
+  h3, h4 { font-size: 14.5px !important; }
+  p, li { font-size: 13px !important; line-height: 1.5; }
 
-  /* Streamlit applique partout une marge basse de -16 px sur les conteneurs markdown,
-     pour compenser la marge basse des paragraphes qu'ils contiennent. Le bloc déborde
-     alors sa propre boîte, et l'élément suivant remonte par-dessus — c'est ce qui
-     faisait chevaucher la description avec la barre d'onglets. On annule les deux
-     marges et l'on confie l'espacement au `gap` du conteneur flex. */
-  [data-testid="stMarkdownContainer"], [data-testid="stCaptionContainer"] { margin-bottom: 0 !important; }
-  [data-testid="stMarkdownContainer"] > p:last-child,
-  [data-testid="stCaptionContainer"] p:last-child { margin-bottom: 0 !important; }
-  h1 { font-size: 23px !important; font-weight: 700; margin: 0 0 .2rem !important; letter-spacing: -.015em; }
-  h2 { font-size: 16px !important; margin: .75rem 0 .3rem !important; }
-  h3, h4 { font-size: 14px !important; font-weight: 600; margin: .5rem 0 .2rem !important; }
-  p, li { font-size: 13px !important; line-height: 1.52; margin-bottom: .3rem; }
-  hr { margin: .5rem 0 !important; }
-
-  [data-testid="stMetricValue"] { font-size: 19px !important; }
-  [data-testid="stMetricLabel"] p { font-size: 11px !important; letter-spacing: .05em;
+  [data-testid="stMetricValue"] { font-size: 20px !important; }
+  [data-testid="stMetricLabel"] p { font-size: 11px !important; letter-spacing: .04em;
     text-transform: uppercase; opacity: .75; }
   [data-testid="stMetricDelta"] { font-size: 12px !important; }
 
-  /* Sidebar. Chaque curseur faisait 68 px : 18 px de padding de part et d'autre d'une
-     piste de 4 px, plus une barre min/max de 22 px. Le contenu débordait la fenêtre.
-     On resserre la piste et l'on retire les bornes — la valeur courante reste affichée
-     au-dessus du curseur, et les plages sont sans surprise. */
-  [data-testid="stSidebar"] { width: 264px !important; }
-  [data-testid="stSidebar"] label p { font-size: 12px !important; margin-bottom: 0 !important; }
-  [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { margin-bottom: 1px !important; }
-  [data-testid="stSidebar"] [data-testid="stSlider"] > div > div:first-child { padding: 8px 0 !important; }
-  [data-testid="stSidebar"] [data-testid="stSliderTickBar"] { display: none !important; }
-  [data-testid="stSidebar"] h2 { font-size: 11px !important; text-transform: uppercase;
-    letter-spacing: .1em; opacity: .6; margin: .7rem 0 .2rem !important; }
-  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .15rem; }
-  [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p { font-size: 10.5px !important; }
+  /* Curseurs : la barre min/max coûte 22 px de haut par curseur, et la valeur courante
+     reste affichée au-dessus du pouce. C'est le seul réglage structurel conservé. */
+  [data-testid="stSliderTickBar"] { display: none !important; }
+  [data-testid="stSidebar"] label p { font-size: 12px !important; }
+  [data-testid="stSidebar"] h2 { font-size: 12px !important; text-transform: uppercase;
+    letter-spacing: .08em; opacity: .7; }
 
   [data-testid="stTabs"] button p { font-size: 13px !important; }
-  [data-testid="stCaptionContainer"] p { font-size: 11.5px !important; line-height: 1.5; opacity: .82; }
-  .katex { font-size: 1.02em !important; }
-  [data-testid="stTable"] td, [data-testid="stTable"] th { font-size: 12px !important; padding: .3rem .5rem !important; }
+  [data-testid="stCaptionContainer"] p { font-size: 11.5px !important; line-height: 1.5; opacity: .85; }
+  .katex { font-size: 1em !important; }
+  [data-testid="stTable"] td, [data-testid="stTable"] th { font-size: 12px !important; }
   code { font-size: 12px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -135,14 +113,12 @@ def compute(params: tuple):
 # Paramètres
 # ---------------------------------------------------------------------------
 
-head_left, head_right = st.columns([6, 1], vertical_alignment="center")
-with head_left:
-    st.title("DynamicPricer")
-    st.caption(
-        "Tarification et production d'un système make-to-stock à capacité limitée sous "
-        "demande modulée par une chaîne de Markov. Modèle : Gayon, Talay-Değirmenci, "
-        "Karaesmen & Örmeci (2009), *PEIS* 23(2), 205-230."
-    )
+st.title("DynamicPricer")
+st.caption(
+    "Tarification et production d'un système make-to-stock à capacité limitée sous demande "
+    "modulée par une chaîne de Markov. Modèle : Gayon, Talay-Değirmenci, Karaesmen & Örmeci "
+    "(2009), *PEIS* 23(2), 205-230."
+)
 
 sb = st.sidebar
 sb.header("Système")
@@ -167,8 +143,7 @@ sb.caption(
 )
 
 params = (N, eps, mu, h, q, a, K, b if m_backlog else 0.0, m_backlog, m_stock, price_step)
-with head_right:
-    run = st.button("Calculer", type="primary", use_container_width=True)
+run = st.button("Calculer", type="primary")
 
 # ---------------------------------------------------------------------------
 # Onglets « Modèle » et « Méthode » — disponibles sans calcul
@@ -456,7 +431,7 @@ with t_stock:
             ax.bar(idx + i * width, res["base_stock"][k], width, label=k.upper())
         ax.set_xticks(idx + 2 * width)
         ax.set_xticklabels(env_names, rotation=12, fontsize=7.5)
-        ax.set_ylabel("base-stock $s_e$", fontsize=8)
+        ax.set_ylabel("base-stock s_e", fontsize=8)
         ax.tick_params(labelsize=8)
         ax.legend(fontsize=7, ncol=5, loc="upper left")
         ax.grid(axis="y", alpha=0.3)
@@ -474,9 +449,9 @@ with t_stock:
         for e, p in enumerate(res["prices"]["edp"]):
             ax.axhline(p, ls="--", lw=1, alpha=0.65, color=f"C{e}")
         ax.axhline(1 / (2 * a), ls=":", lw=1, color="grey")
-        ax.annotate("$p^*$", (res["states"][rec][0], 1 / (2 * a)), fontsize=8,
+        ax.annotate("p*", (res["states"][rec][0], 1 / (2 * a)), fontsize=8,
                     color="grey", va="bottom")
-        ax.set_xlabel("niveau de stock $x$", fontsize=8)
+        ax.set_xlabel("niveau de stock x", fontsize=8)
         ax.set_ylabel("prix", fontsize=8)
         ax.tick_params(labelsize=8)
         ax.legend(fontsize=7)
