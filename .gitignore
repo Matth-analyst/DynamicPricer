@@ -1,11 +1,22 @@
+# Sources bibliographiques et spécification interne : ne pas publier.
+# Les articles sont sous droits et ne doivent pas être redistribués.
+archive/
+
+# Artefacts de compilation Rust
+rust/target/
+
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
 .venv/
 venv/
-*.egg-info/
-.DS_Store
 
-# Artefacts de compilation Rust
-rust/target/
+# Environnements et outils locaux
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

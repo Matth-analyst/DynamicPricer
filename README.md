@@ -1,13 +1,187 @@
 # DynamicPricer
 
-Simulation et optimisation de politiques de tarification et de production pour un système
-make-to-stock en environnement de demande incertain.
+Solveur et étude numérique des politiques conjointes de tarification et de production
+d'un système make-to-stock à capacité limitée, dont la demande est modulée par une
+chaîne de Markov.
 
-Ancrage théorique : Gayon, Talay-Değirmenci, Karaesmen, Örmeci (2009), *Optimal Pricing and
-Production Policies of a Make-to-Stock System with Fluctuating Demand*, **Probability in the
-Engineering and Informational Sciences**, 23(2), 205-230.
+Le projet reproduit puis étend les résultats de Gayon, Talay-Değirmenci, Karaesmen et
+Örmeci (2009), *Optimal Pricing and Production Policies of a Make-to-Stock System with
+Fluctuating Demand*, *Probability in the Engineering and Informational Sciences*, 23(2),
+205-230.
 
-Les spécifications complètes du projet sont dans `../DynamicPricer_SPEC.md`.
+---
+
+## Question étudiée
+
+Un fabricant produit un article unique, le stocke, et le vend à une clientèle sensible
+au prix. Sa capacité de production est bornée — un serveur unique traitant une unité à la
+fois — et la demande alterne entre plusieurs régimes qu'il observe sans les contrôler.
+
+Il dispose de deux leviers : le niveau de stock jusqu'auquel produire, et le prix affiché.
+La question posée est celle du second :
+
+> Jusqu'où faut-il complexifier une politique de prix, et quel gain en attendre ?
+
+Trois degrés de sophistication sont envisageables, du prix unique au prix recalculé à
+chaque mouvement de stock, chacun plus coûteux à exploiter que le précédent. L'étude
+quantifie le gain de chacun et détermine où s'arrêter.
+
+## Modèle
+
+L'état est le couple `(x, e)` : niveau de stock et régime de demande courant.
+
+| Composante | Spécification |
+|---|---|
+| Production | serveur exponentiel de taux `µ`, une unité à la fois, coût unitaire `c` |
+| Environnement | chaîne de Markov à `N` états, taux de transition `q_ej` |
+| Demande | processus de Poisson modulé, intensité `λ_e(p) = Λ_e (1 - a p)` |
+| Coûts | stockage `h` par unité et unité de temps, pénurie `b` sous zéro |
+
+Après uniformisation (`µ + Σ_e Λ_e + Σ_e Σ_{j≠e} q_ej = 1`), l'équation d'optimalité en
+gain moyen s'écrit
+
+```
+v(x,e) + g = -h(x) + µ·T0 v(x,e) + T2 v(x,e) + Tλ v(x,e)
+```
+
+où `T0` porte la décision de production, `T2` les transitions d'environnement réelles et
+fictives, et `Tλ` l'arrivée de demande. Pour la tarification dynamique, `Tλ` est remplacé
+par `T = max_λ Tλ`, dont le maximiseur admet une forme fermée pour la demande linéaire.
+
+### Les cinq stratégies
+
+Le prix et le base-stock constituent deux axes de liberté indépendants, ce qui donne cinq
+politiques et non trois. Tous les gains rapportés le sont relativement à **S**.
+
+| | Prix unique | Un prix par régime | Un prix par état |
+|---|---|---|---|
+| **Base-stock unique** | S | SB | non considérée |
+| **Un base-stock par régime** | SP | EDP | DP |
+
+### Résultats structurels
+
+Quatre propriétés du papier sont vérifiées numériquement sur chaque instance résolue :
+la politique de production optimale est un base-stock dépendant du régime (Théorème 1) ;
+le prix DP décroît avec le stock (Théorème 2) ; les base-stocks sont ordonnés comme les
+régimes sous la Condition 1 (Théorème 3) ; et le prix DP franchit `p* = 1/(2a)` exactement
+au niveau de base-stock (Corollaire 1).
+
+## Méthode numérique
+
+Le solveur repose sur l'**itération sur les politiques**. À prix fixés, la politique
+optimale est entièrement décrite par `N` entiers, ce qui rend l'espace des politiques
+minuscule : chaque tour résout exactement `(I - P) v + g·1 = r`, puis relit les seuils dans
+la fonction de valeur. La convergence demande 5 à 8 tours.
+
+La value iteration, employée initialement, ne convenait pas : avec `q` faible devant les
+taux de demande, le mélange de la chaîne est lent, le module de contraction en span vaut
+environ `1 - O(q)`, et plusieurs milliers d'itérations sont nécessaires.
+
+Un second solveur, indépendant, calcule le même gain moyen par la loi stationnaire du
+générateur en temps continu (`πQ = 0`). Les deux méthodes concordent à la précision
+machine, ce qui valide simultanément l'uniformisation, la normalisation du gain et la
+construction du générateur.
+
+### Moteur natif (optionnel)
+
+Deux noyaux dominent le temps de calcul et sont portés en Rust : le balayage de prix de la
+stratégie EDP, dont le coût croît en `(1/pas)^N`, et la recherche de seuil commun des
+stratégies S et SB, qui évalue chaque niveau candidat pour chaque vecteur de prix.
+
+Le levier principal n'est pas le langage mais la structure. La matrice d'évaluation
+`I - P` est bloc-tridiagonale — la production couple le bloc `x` au bloc `x+1`, la demande
+au bloc `x-1`, l'environnement reste dans le bloc — et ses blocs hors-diagonale sont
+eux-mêmes diagonaux, ni la vente ni la production ne changeant de régime. Un algorithme de
+Thomas par blocs coûte donc `O(X·N³)` au lieu de `O((X·N)³)` : à `N = 4` et `X = 61`,
+environ 12 000 opérations contre 4,8 millions. numpy ne peut pas l'exprimer, faute de
+solveur bloc-tridiagonal par lot. Les instances du balayage étant indépendantes, elles sont
+ensuite réparties sur les cœurs disponibles.
+
+| | Python | Rust | |
+|---|---|---|---|
+| Balayage EDP, `N=2`, pas 0,01, `ε=0,8` (9 801 vecteurs) | 47,2 s | 0,8 s | x59 |
+| Balayage EDP, `N=4`, pas 0,1 (6 561 vecteurs) | 35,4 s | 1,2 s | x29 |
+| Seuil commun SB, `N=4`, pas 0,1 | 89,7 s | 3,8 s | x23 |
+| `solve_all`, `N=4`, pas 0,1 | 90,6 s | 5,5 s | x16 |
+| `solve_all`, `N=4`, pas 0,05 (130 321 vecteurs) | environ 40 min | 104 s | x23 |
+| Validation complète contre le papier | 135 s | 16,5 s | x8 |
+
+Le moteur Python demeure la référence : c'est lui qui est validé contre le papier, et le
+portage n'hérite de cette validation que par les tests d'équivalence de
+`tests/test_native.py`. En l'absence du module compilé, le solveur retombe silencieusement
+sur Python.
+
+## Validation
+
+### Contre le papier
+
+Périmètre : `N = 2`, sans coût de mise en route, ventes perdues — le cas exact de la
+source.
+
+| Élément | Résultat |
+|---|---|
+| Table 4, base-stocks optimaux | 20 valeurs sur 20 exactes |
+| Table 3, profit gains | écart maximum de 0,14 point de pourcentage |
+| Table 5, prix S / SB / SP / EDP | toutes les valeurs exactes |
+| Table 2, menu de prix | les 15 valeurs concordent |
+| Figure 1, gain maximal mono-environnement | 3,80 % contre 3,81 % publié |
+| Figure 2, `max_µ PG(dp,edp)` | 3,22 % contre 3,24 % publié |
+
+La Table 4 constitue le test le plus discriminant : les base-stocks étant des entiers,
+aucun écart ne peut s'y dissimuler derrière un arrondi. Les valeurs de la Figure 1 et de
+la Figure 2 proviennent de balayages indépendants et n'ont jamais servi de cible.
+
+### Cohérence interne des extensions
+
+Trois volets dépassent le périmètre de la source et ne disposent d'aucune référence
+publiée. Ils sont vérifiés par des cas limites, ce qui constitue une garantie
+sensiblement plus faible.
+
+| Extension | Cas limite | Écart |
+|---|---|---|
+| `N > 2` régimes | un régime dédoublé dans un modèle à 3 états reproduit le cas à 2 états | nul |
+| Coût de mise en route `K > 0` | `K = 0` redonne le modèle sans coût de mise en route | nul |
+| Backlog `b > 0` | `b → ∞` converge vers le comportement à ventes perdues | 3,5e-8 |
+
+### Écarts relevés dans la source
+
+La fidélité de la reproduction a permis d'identifier trois points sur lesquels le papier
+est imprécis ou contredit par ses propres données. Les trois sont figés dans la suite de
+tests, de sorte qu'une évolution du solveur les ferait apparaître plutôt que de les
+dissimuler dans une tolérance élargie.
+
+1. Le paragraphe 5.3.2 affirme `s(φ,e) ≤ s(dp,e)` pour `φ = s, sb, sp, edp`. La Table 4 du
+   même article publie pourtant `s(sb) = 4` et `s(dp,L) = 3` à `ε = 0,8`. Le solveur
+   reproduit ces deux valeurs exactement : la contradiction est dans le texte. La propriété
+   n'est bien posée que pour SP et EDP, dont le base-stock dépend du régime ; S et SB n'en
+   ont qu'un, compromis entre les régimes, qui n'a pas de raison de rester sous le seuil
+   retenu par DP dans le régime le plus faible.
+2. Table 5, `ε = 0,6` : `p(dp,L)` publié à 0,33, calculé à 0,31.
+3. Table 5, `ε = 0,8` : `p(dp,H)` publié à 0,99, calculé à 0,88. La suite publiée
+   0,85 – 0,87 – 0,88 – 0,99 rompt une progression que le solveur rend régulière
+   (0,85 – 0,87 – 0,88 – 0,88), alors que les quatre autres valeurs DP à `ε = 0,8`
+   coïncident au centime près. Le résultat est insensible à la troncature de l'espace
+   d'état comme à la tolérance numérique.
+
+## Principaux résultats
+
+**Sans fluctuation de la demande, la tarification dynamique ne rapporte presque rien.**
+En régime unique, S, SB, SP et EDP se confondent, et le gain de DP mesure exactement
+l'apport de la dépendance au niveau de stock. Le maximum atteignable sur l'ensemble du plan
+`(µ, h)` est de 3,81 %. Ce gain est en outre non monotone en capacité : nul aux deux
+extrémités, maximal à capacité intermédiaire.
+
+**Avec fluctuation, l'ordre de grandeur change, mais pas là où on l'attend.** Le gain
+dépasse 13 %, dont l'essentiel provient de l'adaptation au régime et non au niveau de
+stock : l'écart entre DP et EDP reste sous 3,3 % sur tout le balayage de capacité.
+
+**Le classement de SP et SB s'inverse avec la capacité.** À capacité contrainte
+(`µ = 0,11`), ajuster les prix sans les stocks rapporte 12,0 % quand l'inverse ne rapporte
+que 2,5 %. À `µ = 0,51`, le rapport s'inverse : 9,1 % contre 2,0 %.
+
+**Deux ou trois tarifs suffisent.** Un menu de deux prix capte environ 77 % du bénéfice
+d'un continuum, trois prix environ 93 %. Le rendement décroît très vite, et l'essentiel se
+joue entre un prix unique et deux prix.
 
 ## Installation
 
@@ -15,214 +189,96 @@ Les spécifications complètes du projet sont dans `../DynamicPricer_SPEC.md`.
 pip install -r requirements.txt
 ```
 
-## Tests
+Le moteur natif est optionnel et requiert une chaîne Rust :
 
 ```bash
-pytest
+cd rust && cargo build --release
 ```
 
-La validation contre les valeurs publiées (Étape 3) porte la grille de prix complète sur
-quatre instances et prend quelques minutes ; elle est donc marquée `slow` et exclue par
-défaut. Pour la lancer :
+Aucune autre étape n'est nécessaire : `src/native.py` détecte l'artefact et le solveur
+l'utilise automatiquement.
 
-```bash
-pytest -m slow
-```
+## Utilisation
 
-Pour recalculer les résultats de validation et alimenter le notebook :
-
-```bash
-python -m validation
-```
-
-## Dashboard
+Tableau de bord interactif :
 
 ```bash
 streamlit run dashboard/app.py
 ```
 
-Curseurs sur `µ`, `h`, `ε`, `q`, `a`, plus `N`, `K` et le backlog. Trois onglets :
-comparaison des cinq stratégies, niveaux de stock et courbe de prix DP, et une
-recommandation rédigée à partir des valeurs calculées.
+Curseurs sur `µ`, `h`, `ε`, `q`, `a`, ainsi que sur `N`, le coût de mise en route et le
+backlog. Cinq onglets : comparaison des cinq stratégies, niveaux de stock et courbe de prix,
+recommandation rédigée à partir des valeurs calculées, formulation mathématique du modèle,
+et méthode numérique. Le pas de la grille de prix pilote le temps de calcul, qui croît en
+`(1/pas)^N` ; le pas 0,05 constitue un bon compromis interactif.
 
-Deux points d'usage. Le pas de la grille de prix pilote le temps de calcul, qui croît
-en `(1/pas)^N` : le pas 0.05 est un bon compromis interactif, le pas 0.01 de l'Appendix E
-est réservé à la validation. Et avec `K > 0`, seule la stratégie DP est calculée — le
-balayage de prix en lot ne couvre pas l'état augmenté du serveur — le dashboard affiche
-alors la bande d'hystérésis et le signale explicitement.
+Tests unitaires et d'intégration :
+
+```bash
+pytest
+```
+
+Validation contre les valeurs publiées, plus lente et donc exclue par défaut :
+
+```bash
+pytest -m slow
+```
+
+Recalcul des résultats alimentant les notebooks :
+
+```bash
+python -m validation
+python -m sensitivity
+```
 
 ## Structure
 
 ```
 dynamicpricer/
 ├── src/
-│   ├── params.py       # dataclass Problem : tous les paramètres du modèle
-│   ├── mdp.py          # opérateurs T0/T2/Tλ, itération sur les politiques
-│   ├── strategies.py   # les cinq stratégies S, SB, SP, EDP, DP
-│   ├── metrics.py      # profit gains et contrôles de cohérence
-│   ├── validation.py   # comparaison aux tables publiées (Étape 3)
-│   ├── native.py       # chargement optionnel du moteur Rust
-│   ├── sensitivity.py  # balayages de l'Étape 4
-│   └── reference_gayon2009.py  # valeurs publiées, transcrites du papier
+│   ├── params.py                # dataclass Problem, uniformisation, demande linéaire
+│   ├── mdp.py                   # opérateurs, itération sur les politiques, loi stationnaire
+│   ├── strategies.py            # les cinq stratégies S, SB, SP, EDP, DP
+│   ├── metrics.py               # profit gains, états récurrents, contrôles de cohérence
+│   ├── validation.py            # comparaison aux tables publiées
+│   ├── sensitivity.py           # balayages de µ, h, ε, q et menus de prix
+│   ├── native.py                # chargement optionnel du moteur Rust
+│   └── reference_gayon2009.py   # valeurs publiées, transcrites de la source
+├── rust/                        # moteur natif : balayage de prix et seuil commun
 ├── notebooks/
-│   ├── 01_validation.ipynb    # reproduction des Tables 3-5 et Figure 2
-│   └── 02_sensitivity.ipynb   # balayages µ, h, ε, q
+│   ├── 01_validation.ipynb      # reproduction des Tables 2-5 et des Figures 1-2
+│   └── 02_sensitivity.ipynb     # analyses de sensibilité et enseignements
 ├── dashboard/app.py
-├── rust/               # moteur natif optionnel (balayage de prix)
 ├── tests/
-└── report/
+└── report/                      # rapport, slides de synthèse, résultats calculés
 ```
 
-## Moteur natif Rust (optionnel)
+## Périmètre et limites
 
-Le balayage de prix de la stratégie EDP coûte `(1/pas)^N` résolutions. À `N = 2` c'est
-supportable ; à `N = 4` au pas 0.05, cela fait 130 321 instances et le moteur Python y
-passe une douzaine de minutes. Un moteur natif prend le relais quand il est compilé :
+**Du modèle.** Ni le coût de mise en œuvre d'une politique, ni la réaction des clients aux
+variations de prix ne sont facturés. Les gains affichés pour la tarification dynamique sont
+donc des majorants, et son avantage réel sur la tarification par régime est plus étroit que
+ces chiffres. Le modèle suppose par ailleurs le régime parfaitement observable au moment de
+décider, hypothèse favorable qui majore elle aussi le gain.
 
-```bash
-cd rust && cargo build --release
-```
+**De la validation.** Seul le cœur du modèle est validé contre une source publiée. Les
+trois extensions ne le sont que par cohérence interne : elles sont cohérentes avec
+elles-mêmes, ce qui n'établit pas leur correction au regard d'une référence externe.
 
-Rien d'autre à faire : `src/native.py` détecte l'artefact, et `solve_batch` retombe
-silencieusement sur Python s'il est absent. Le moteur Python reste la **référence** —
-c'est lui qui est validé contre le papier — et `tests/test_native.py` fait tenir cette
-validation au portage en vérifiant leur équivalence.
+**Du coût de mise en route.** `K` est modélisé comme un coût de redémarrage du serveur,
+avec un état augmenté marche/arrêt, et non comme un coût de commande par lots. Ce second
+choix, envisagé initialement, supprimait la contrainte de capacité qui fonde le modèle et
+ne dégénérait pas en production unitaire quand `K = 0`. La politique optimale obtenue est
+une bande d'hystérésis, non une politique `(s, S)` au sens de Chen et Simchi-Levi, dont les
+résultats portent sur un réapprovisionnement non capacité et ne s'appliquent donc pas ici.
+Le balayage de prix en lot ne couvre pas ce modèle : la comparaison des cinq stratégies
+suppose `K = 0`.
 
-Le gain ne vient pas principalement du langage. La matrice d'évaluation `I − P` est
-**bloc-tridiagonale** : la production couple le bloc `x` à `x+1`, la demande à `x−1`, et
-l'environnement reste dans le bloc. Un algorithme de Thomas par blocs coûte `O(X·N³)` là
-où la résolution dense coûte `O((X·N)³)` — pour `N=4`, `X=61`, environ 12 000 opérations
-contre 4,8 millions. C'est numpy qui ne sait pas exprimer cela, faute de solveur
-bloc-tridiagonal par lot ; Rust est le véhicule, la structure est le levier. `rayon`
-répartit ensuite les instances sur les cœurs.
+**Du coût de calcul.** Le balayage de prix croît en `(1/pas)^N`. Au pas de 0,01 de la
+source, `N = 3` et au-delà imposent une grille plus grossière.
 
-Deux noyaux sont pris en charge, et il a fallu les deux : le balayage de prix (EDP),
-puis la **recherche de seuil commun** des stratégies S et SB. Le second était en réalité
-le poste dominant du solveur complet — à `N = 4`, une fois le balayage accéléré, il
-représentait encore **99 %** du temps de `solve_all`. Il évalue chaque niveau candidat
-pour chaque vecteur de prix, soit ~2,6 millions d'évaluations au pas 0.05.
+## Référence
 
-| | Python | Rust | |
-|---|---|---|---|
-| balayage EDP, `N=2`, pas 0.01, `ε=0.8` | 47,2 s | 0,8 s | **×59** |
-| balayage EDP, `N=4`, pas 0.1 | 35,4 s | 1,2 s | **×29** |
-| seuil commun SB, `N=4`, pas 0.1 | 89,7 s | 3,8 s | **×23** |
-| `solve_all`, `N=4`, pas 0.1 | 90,6 s | 5,5 s | **×16** |
-| `solve_all`, `N=4`, pas 0.05 | ~40 min | 104 s | **×23** |
-| validation complète contre le papier | 135 s | 16,5 s | **×8** |
-
-À l'optimum, les deux moteurs donnent le même gain, la même politique et le même prix,
-et les quatre instances de référence retrouvent exactement les Tables 4 et 5.
-
-Une nuance vérifiée et assumée : sur des instances **non optimales**, les base-stocks
-peuvent différer d'une ou deux unités entre les deux moteurs. Les gains y sont alors
-rigoureusement égaux (écarts de l'ordre de `1e-17`) — ce sont des politiques ex æquo,
-que les deux implémentations ne départagent pas de la même façon. Un test dédié vérifie
-que toute divergence de seuil s'accompagne d'une égalité de gain.
-
-## Note de performance : itération sur les politiques
-
-Le poste de calcul dominant est le balayage de prix de la stratégie EDP — `(1/pas)^N`
-programmes dynamiques, soit 99² = 9801 au pas de 0.01 de l'Appendix E.
-
-En **value iteration**, ce balayage ne terminait pas en un temps raisonnable. La cause
-n'est pas l'implémentation : les opérateurs sont vectorisés, et le coût part en nombre
-d'itérations. Avec `q = 0.01`, les transitions d'environnement sont deux ordres de
-grandeur plus rares que les arrivées de demande, le mélange de la chaîne est très lent
-et le module de contraction en span vaut à peu près `1 - O(q)` — il faut donc quelques
-milliers d'itérations, quel que soit le langage.
-
-À prix fixé, la politique optimale est pourtant décrite par `N` entiers seulement (les
-base-stocks, Théorème 1). L'**itération sur les politiques** exploite cette petitesse :
-elle évalue chaque politique exactement en résolvant `(I - P)v + g·1 = r`, puis
-l'améliore en relisant les seuils dans `v`. Elle converge en 5 à 8 tours.
-
-Trois points font l'essentiel du gain :
-
-1. la part de la chaîne indépendante de la politique (environnement, demande) est
-   précalculée une fois au lieu d'être reconstruite à chaque tour ;
-2. la troncature de l'espace d'état est calibrée par une **sonde** sur quelques dizaines
-   de vecteurs de prix, au lieu de partir petit et doubler à l'aveugle — une troncature
-   trop courte oblige à tout refaire, et le coût d'une résolution est cubique en la
-   taille de l'état ;
-3. tronquer au-dessus du base-stock optimal n'est pas une approximation : sous une
-   politique base-stock, les états supérieurs sont transitoires.
-
-Balayage EDP complet à `ε = 0.8` (9801 combinaisons, `m_stock = 60`) :
-
-| méthode | temps |
-|---|---|
-| value iteration | n'aboutit pas (arrêtée après plusieurs minutes) |
-| itération sur les politiques, version initiale | 87 s |
-| + précalcul et indexation directe | 59 s |
-| + sonde de troncature | **17,7 s** |
-
-L'itération sur les politiques est aussi **plus exacte** : elle résout l'équation
-d'évaluation au lieu de l'approcher, et coïncide avec l'évaluateur stationnaire
-`average_profit` au chiffre près, là où la value iteration s'en écarte de l'ordre de sa
-tolérance (`1e-5`). `solve_batch_vi` est conservée pour la validation croisée.
-
-## Modèle et limites connues
-
-### `K` est un coût de mise en route, pas un coût de commande par lots
-
-Une première rédaction de la spec posait
-`T0 f(x,e) = max{f(x,e), max_{y>x}[f(y,e) - c(y-x) - K]}`, soit une commande de
-quantité libre à chaque opportunité. Cette forme a été abandonnée : elle ne dégénère
-pas en `max{f(x,e), f(x+1,e) - c}` quand `K = 0` (le maximiseur est le sommet de
-`y ↦ f(y,e) - c·y`, pas `y = x+1`), elle supprime la contrainte de capacité qui fonde
-le make-to-stock queue, et son gain moyen dépasse celui de l'Étape 1.1 au lieu de le
-retrouver — rendant impossible le test de non-régression que la spec exigeait.
-
-`K` est donc le coût de **redémarrage du serveur**. L'état devient `(x, e, σ)` avec
-`σ ∈ {0,1}` (arrêté / en marche), la production reste unitaire au taux `µ`, et
-l'équation d'optimalité s'écrit
-`v = T_switch(-h + µ·T_produce v + T2 v + Tλ v)`.
-
-La politique optimale est une **bande d'hystérésis** : on produit jusqu'à `S_e`, on ne
-redémarre qu'une fois retombé sous `s_e`. Ce n'est pas un `(s, S)` au sens de
-Chen & Simchi-Levi — ces références portent sur un réapprovisionnement non capacité —
-et la structure est donc constatée numériquement (`d(x,e)` décroissante), pas citée.
-
-Les deux validations internes passent : `K = 0` redonne **exactement** l'Étape 1.1
-(`g` identique à `1e-12`, bande dégénérée en `(s_e, s_e)`), et la bande s'élargit
-pendant que `g` décroît à mesure que `K` augmente.
-
-### Concordance avec les tables publiées
-
-Comparaison directe aux Tables 3 à 5 pour `ε ∈ {0, 0.3, 0.6, 0.8}`, `µ = 0.11`,
-au pas de prix 0.01 de l'Appendix E. La validation formelle est l'objet de l'Étape 3 ;
-ce qui suit est l'état constaté à l'issue de l'Étape 2.
-
-* **Table 4 — base-stocks : les 16 valeurs concordent exactement**, pour les cinq
-  stratégies et les quatre valeurs de `ε`.
-* **Table 5 — prix : toutes les valeurs de S, SB, SP et EDP concordent exactement**
-  (par exemple `p^edp = (0.57, 0.84)` et `p^sb = (0.55, 0.84)` à `ε = 0.8`).
-* **Table 3 — profit gains : écart maximum de 0.2 point** (`PG^{dp,s} = 15.4 %`
-  contre 15.2 % publié à `ε = 0.8`), soit ~1.3 % en relatif, dans la tolérance visée.
-  Le biais est systématiquement positif et de l'ordre de l'arrondi du papier, qui ne
-  publie qu'une décimale.
-
-Deux valeurs de prix **DP** restent en écart, déjà relevées à l'Étape 1 :
-
-| | papier | solveur |
-|---|---|---|
-| `ε=0.6`, `p^dp_L` (min) | 0.33 | 0.31 |
-| `ε=0.8`, `p̄^dp_H` (max) | 0.99 | 0.88 |
-
-La seconde est suspecte côté papier : la suite publiée `0.85 → 0.87 → 0.88 → 0.99`
-rompt une progression que le solveur rend régulière (`0.85 → 0.87 → 0.88 → 0.88`),
-et les quatre autres valeurs DP à `ε = 0.8` coïncident au centime près. Les résultats
-sont insensibles à la troncature (`m` de 60 à 400) et à la tolérance (`1e-5` à `1e-11`).
-
-## Avancement
-
-| Étape | Statut |
-|---|---|
-| 0 — Cadrage & structure du repo | ✅ |
-| 1 — Solveur MDP (opérateurs, K>0, backlog) | ✅ |
-| 2 — Cinq stratégies de tarification | ✅ |
-| 3 — Validation | ✅ |
-| 4 — Analyse de sensibilité | 🔄 |
-| 5 — Dashboard | ✅ |
-| 6 — Rapport & présentation | ⬜ |
+Gayon, J.-P., Talay-Değirmenci, I., Karaesmen, F., Örmeci, E. L. (2009). Optimal Pricing
+and Production Policies of a Make-to-Stock System with Fluctuating Demand. *Probability in
+the Engineering and Informational Sciences*, 23(2), 205-230.
