@@ -20,3 +20,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Gabarit importé d un autre projet, conservé en local
+rapport_dfm.html
