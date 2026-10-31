@@ -1,17 +1,17 @@
-"""Tests des cinq stratégies (Étape 2 de la spec).
+"""Tests des cinq stratégies.
 
 Les tests utilisent un pas de prix grossier (`price_step=0.05`) pour rester rapides :
-le pas de 0.01 de l'Appendix E est réservé à la validation chiffrée de l'Étape 3,
-qui vit dans les notebooks. Ce qui est vérifié ici, ce sont les **invariants** de la
+le pas de 0.01 de l'Appendix E est réservé à la validation chiffrée contre le papier
+(`test_validation.py`, marqué `slow`). Ce qui est vérifié ici, ce sont les **invariants** de la
 classification de la Table 1, pas les valeurs publiées.
 """
 
 import numpy as np
 import pytest
 
-from metrics import check_ordering, profit_gain
-from params import Problem
-from strategies import (
+from dynamicpricer.metrics import check_ordering, profit_gain
+from dynamicpricer.params import Problem
+from dynamicpricer.strategies import (
     MAX_PRICE_COMBINATIONS,
     STRATEGIES,
     solve_all,
@@ -148,7 +148,7 @@ def test_static_strategy_is_the_profit_gain_denominator():
 
 def test_dp_solution_matches_the_underlying_mdp():
     """`solve_dp` n'est qu'une enveloppe autour de `solve_mdp` : rien ne doit diverger."""
-    from mdp import solve_mdp
+    from dynamicpricer.mdp import solve_mdp
 
     pb = Problem.two_env(eps=0.6, **COARSE)
     assert solve_dp(pb).g == pytest.approx(solve_mdp(pb).g)

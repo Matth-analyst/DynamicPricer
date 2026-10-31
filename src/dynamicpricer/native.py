@@ -1,8 +1,8 @@
 """Chargement optionnel du moteur natif Rust (`rust/src/lib.rs`).
 
-Le moteur natif ne couvre qu'un point du solveur : le balayage de prix à prix fixés,
-qui est le poste dominant dès que `N` dépasse 2. Tout le reste — stratégie DP, modèle
-à coût de mise en route, évaluation stationnaire — reste en Python.
+Le moteur natif porte les deux noyaux coûteux du solveur : le balayage de prix à prix
+fixés (stratégies SP et EDP) et la recherche du seuil commun (stratégies S et SB). Tout
+le reste — stratégie DP, modèle à coût de mise en route — reste en Python.
 
 L'absence du module n'est jamais une erreur : `solve_batch` retombe sur
 l'implémentation Python, qui reste la référence contre laquelle le natif est testé
@@ -11,17 +11,31 @@ l'implémentation Python, qui reste la référence contre laquelle le natif est 
 Compilation :
 
     cd rust && cargo build --release
+
+Le module est cherché d'abord dans le dossier désigné par la variable d'environnement
+`DYNAMICPRICER_NATIVE_DIR` (s'il est défini), puis dans `rust/target/` à la racine du dépôt.
+Le dossier peut être un `target/` de cargo (sous-dossiers `release/` et `debug/`) ou
+contenir directement la bibliothèque compilée. Si la variable est définie mais qu'aucun
+module utilisable n'y figure, un `RuntimeWarning` est émis avant le repli : le résultat
+reste correct, seule la vitesse change.
 """
 
 from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import os
 import shutil
+import warnings
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[1] / "rust" / "target"
+import numpy as np
+
+_ROOT = Path(__file__).resolve().parents[2] / "rust" / "target"
 _STEM = "dynamicpricer_rust"
+
+#: Variable d'environnement désignant un dossier contenant le moteur compilé.
+ENV_VAR = "DYNAMICPRICER_NATIVE_DIR"
 
 
 def _refresh_windows_copy(base: Path) -> None:
@@ -48,19 +62,21 @@ def _refresh_windows_copy(base: Path) -> None:
         pass
 
 
-def _candidates():
-    """Artefacts possibles, release d'abord — un build debug est 10 à 50 fois plus lent."""
-    for profile in ("release", "debug"):
-        base = _ROOT / profile
+def _candidates(root: Path):
+    """Artefacts possibles sous `root`, release d'abord — un build debug est 10 à 50 fois plus lent.
+
+    `root` peut être un `target/` de cargo ou le dossier contenant directement la bibliothèque.
+    """
+    for base in (root / "release", root / "debug", root):
         _refresh_windows_copy(base)
         for suffix in (".pyd", ".so", ".dylib"):
             yield base / f"{_STEM}{suffix}"
             yield base / f"lib{_STEM}{suffix}"
 
 
-def _load():
+def _load_from(root: Path):
     valid = tuple(importlib.machinery.EXTENSION_SUFFIXES)
-    for path in _candidates():
+    for path in _candidates(root):
         if not path.exists() or not path.name.endswith(valid):
             continue
         try:
@@ -73,6 +89,21 @@ def _load():
         except (OSError, ImportError):
             continue
     return None
+
+
+def _load():
+    custom = os.environ.get(ENV_VAR)
+    if custom:
+        module = _load_from(Path(custom).expanduser())
+        if module is not None:
+            return module
+        warnings.warn(
+            f"{ENV_VAR}={custom!r} ne contient aucun module natif utilisable ; "
+            "repli sur rust/target/ puis sur le moteur Python.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return _load_from(_ROOT)
 
 
 ENGINE = _load()
@@ -94,7 +125,6 @@ def solve_batch_truncated(pb, lam_n, gamma: float, max_sweeps: int):
     """
     if not AVAILABLE:
         raise RuntimeError("moteur natif indisponible")
-    import numpy as np
 
     lam_n = np.ascontiguousarray(lam_n, dtype=float)
     g, s = ENGINE.solve_batch_py(
@@ -124,7 +154,6 @@ def search_common_level(pb, lam, max_level: int):
     """
     if not HAS_COMMON_LEVEL:
         raise RuntimeError("moteur natif indisponible")
-    import numpy as np
 
     lam = np.ascontiguousarray(lam, dtype=float)
     g, levels = ENGINE.search_common_level_py(

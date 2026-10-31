@@ -11,6 +11,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+.ruff_cache/
+.coverage
 .venv/
 venv/
 
@@ -20,6 +22,3 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
-
-# Gabarit importé d un autre projet, conservé en local
-rapport_dfm.html

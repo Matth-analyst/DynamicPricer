@@ -1,12 +1,10 @@
-"""Dashboard interactif DynamicPricer (Étape 5 de la spec).
+"""Tableau de bord interactif DynamicPricer.
 
-Lancement, depuis la racine du repo :
+Lancement, depuis la racine du repo (après `pip install -e .[dashboard]`) :
 
     streamlit run dashboard/app.py
 """
 
-import sys
-from pathlib import Path
 from time import perf_counter
 
 import matplotlib.pyplot as plt
@@ -14,13 +12,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-import native  # noqa: E402
-from metrics import profit_gain  # noqa: E402
-from mdp import solve_mdp  # noqa: E402
-from params import Problem  # noqa: E402
-from strategies import solve_all  # noqa: E402
+from dynamicpricer import native
+from dynamicpricer.mdp import solve_mdp
+from dynamicpricer.metrics import profit_gain
+from dynamicpricer.params import Problem
+from dynamicpricer.strategies import solve_all
 
 LABELS = {
     "s": "S — prix unique, stock unique",

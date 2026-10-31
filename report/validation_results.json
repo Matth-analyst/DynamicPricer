@@ -640,7 +640,7 @@
       "detail": "s(N=3)=(7, 22, 22) vs s(N=2)=(7, 22)"
     },
     {
-      "case": "K=0 : le modèle à mise en route redonne l'Étape 1.1",
+      "case": "K=0 : le modèle à mise en route redonne le modèle de base",
       "computed": 0.069423324176,
       "reference": 0.069423324176,
       "gap": 0.0,

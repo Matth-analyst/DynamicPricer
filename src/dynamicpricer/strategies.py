@@ -1,4 +1,4 @@
-"""Les cinq stratégies de tarification/réapprovisionnement (Étape 2 de la spec).
+"""Les cinq stratégies de tarification/réapprovisionnement.
 
 Classification du papier (Table 1), sur deux axes indépendants :
 
@@ -8,10 +8,10 @@ Classification du papier (Table 1), sur deux axes indépendants :
 
 Les deux axes appellent deux machineries différentes :
 
-* base-stock **libre** (SP, EDP, DP) — la value iteration l'optimise elle-même ;
+* base-stock **libre** (SP, EDP, DP) — l'itération sur les politiques l'optimise elle-même ;
   il suffit de balayer les prix, ce que `mdp.solve_batch` fait en une passe.
 * base-stock **contraint** identique (S, SB) — c'est une classe de politiques
-  restreinte, qu'aucune value iteration ne produit. On énumère donc les seuils et
+  restreinte, qu'aucune résolution du MDP ne produit. On énumère donc les seuils et
   on évalue chaque politique exactement par sa loi stationnaire (`mdp.average_profit`).
 """
 
@@ -21,9 +21,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import native
-from mdp import average_profit, solve_batch, solve_mdp
-from params import Problem
+from . import native
+from .mdp import average_profit, solve_batch, solve_mdp
+from .params import Problem
 
 #: Les cinq stratégies, dans l'ordre croissant de flexibilité.
 STRATEGIES = ("s", "sb", "sp", "edp", "dp")
@@ -57,12 +57,12 @@ class Solution:
 # ---------------------------------------------------------------------------
 
 
-def _single_price_grid(pb: Problem) -> np.ndarray:
+def single_price_grid(pb: Problem) -> np.ndarray:
     """Prix unique répliqué sur les environnements : `(N, P)`."""
     return np.tile(pb.search_price_grid, (pb.N, 1))
 
 
-def _price_vector_grid(pb: Problem) -> np.ndarray:
+def price_vector_grid(pb: Problem) -> np.ndarray:
     """Produit cartésien des prix par environnement : `(N, P^N)`."""
     grid = pb.search_price_grid
     size = grid.size**pb.N
@@ -76,7 +76,7 @@ def _price_vector_grid(pb: Problem) -> np.ndarray:
     return np.stack([m.ravel() for m in mesh])
 
 
-def _demand_from_prices(pb: Problem, prices: np.ndarray) -> np.ndarray:
+def demand_from_prices(pb: Problem, prices: np.ndarray) -> np.ndarray:
     """`λ_e(p_e)` pour une grille de prix `(N, B)`, renvoyée en `(N, B)`."""
     Lam = np.asarray(pb.Lam, dtype=float)[:, None]
     return Lam * np.clip(1.0 - pb.a * prices, 0.0, 1.0)
@@ -87,21 +87,21 @@ def _demand_from_prices(pb: Problem, prices: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _sweep(pb: Problem, prices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Value iteration sur toute la grille de prix : `(g (B,), base_stock (N, B))`.
+def price_sweep(pb: Problem, prices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Itération sur les politiques sur toute la grille de prix : `(g (B,), base_stock (N, B))`.
 
-    Coûteux (c'est le poste dominant de l'Étape 2), et partagé entre deux stratégies :
+    Coûteux (c'est l'un des postes dominants du solveur), et partagé entre deux stratégies :
     SP/EDP y lisent directement leur optimum, S/SB n'en tirent que la borne de
     recherche du seuil commun. `solve_all` ne l'exécute donc qu'une fois par grille.
     """
-    return solve_batch(pb, _demand_from_prices(pb, prices))
+    return solve_batch(pb, demand_from_prices(pb, prices))
 
 
 def _solve_free_base_stock(
     pb: Problem, prices: np.ndarray, name: str, sweep=None
 ) -> Solution:
-    """Balaie une grille de prix, base-stock optimisé par la value iteration."""
-    g, base_stock = _sweep(pb, prices) if sweep is None else sweep
+    """Balaie une grille de prix, base-stock optimisé par itération sur les politiques."""
+    g, base_stock = price_sweep(pb, prices) if sweep is None else sweep
     best = int(np.argmax(g))
     return Solution(
         strategy=name,
@@ -113,12 +113,12 @@ def _solve_free_base_stock(
 
 def solve_static_pricing(pb: Problem, sweep=None) -> Solution:
     """**SP** : prix unique, base-stock libre par environnement."""
-    return _solve_free_base_stock(pb, _single_price_grid(pb), "sp", sweep)
+    return _solve_free_base_stock(pb, single_price_grid(pb), "sp", sweep)
 
 
 def solve_edp(pb: Problem, sweep=None) -> Solution:
     """**EDP** : un prix par environnement, base-stock libre par environnement."""
-    return _solve_free_base_stock(pb, _price_vector_grid(pb), "edp", sweep)
+    return _solve_free_base_stock(pb, price_vector_grid(pb), "edp", sweep)
 
 
 def solve_dp(pb: Problem) -> Solution:
@@ -147,7 +147,7 @@ def _base_stock_search_bound(pb: Problem, prices: np.ndarray, sweep=None) -> int
     vérifié intérieur (cf. `_search_common_base_stock`) — si la borne mordait, le
     résultat serait faux silencieusement.
     """
-    _, base_stock = _sweep(pb, prices) if sweep is None else sweep
+    _, base_stock = price_sweep(pb, prices) if sweep is None else sweep
     return int(min(base_stock.max() + _BOUND_MARGIN, pb.x_max))
 
 
@@ -155,7 +155,7 @@ def _search_common_base_stock(
     pb: Problem, prices: np.ndarray, name: str, sweep=None
 ) -> Solution:
     """Maximise sur (grille de prix) × (seuil commun `s`), par évaluation exacte."""
-    lam = _demand_from_prices(pb, prices).T  # (B, N) attendu par `average_profit`
+    lam = demand_from_prices(pb, prices).T  # (B, N) attendu par `average_profit`
     bound = _base_stock_search_bound(pb, prices, sweep)
     levels = np.arange(max(pb.x_min, 0), bound + 1)
 
@@ -192,12 +192,12 @@ def solve_static(pb: Problem, sweep=None) -> Solution:
 
     C'est la stratégie de référence au dénominateur de tous les profit gains (§5.1).
     """
-    return _search_common_base_stock(pb, _single_price_grid(pb), "s", sweep)
+    return _search_common_base_stock(pb, single_price_grid(pb), "s", sweep)
 
 
 def solve_static_basestock(pb: Problem, sweep=None) -> Solution:
     """**SB** : un prix par environnement, base-stock unique."""
-    return _search_common_base_stock(pb, _price_vector_grid(pb), "sb", sweep)
+    return _search_common_base_stock(pb, price_vector_grid(pb), "sb", sweep)
 
 
 SOLVERS = {
@@ -212,12 +212,12 @@ SOLVERS = {
 def solve_all(pb: Problem) -> dict[str, Solution]:
     """Résout les cinq stratégies pour une instance donnée.
 
-    Les deux balayages de value iteration — grille de prix unique, puis produit
+    Les deux balayages — grille de prix unique, puis produit
     cartésien — sont mutualisés entre les stratégies qui partagent la même grille,
     ce qui divise par deux le poste de calcul dominant.
     """
-    single, vector = _single_price_grid(pb), _price_vector_grid(pb)
-    sweep_single, sweep_vector = _sweep(pb, single), _sweep(pb, vector)
+    single, vector = single_price_grid(pb), price_vector_grid(pb)
+    sweep_single, sweep_vector = price_sweep(pb, single), price_sweep(pb, vector)
     return {
         "s": _search_common_base_stock(pb, single, "s", sweep_single),
         "sb": _search_common_base_stock(pb, vector, "sb", sweep_vector),

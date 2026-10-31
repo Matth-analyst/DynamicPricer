@@ -1,4 +1,4 @@
-"""Paramètres du modèle (§3 de la spec).
+"""Paramètres du modèle.
 
 Contient `Problem`, la dataclass qui regroupe tous les paramètres d'une instance,
 ainsi que les utilitaires de demande/revenu et la normalisation par uniformisation.
@@ -35,13 +35,13 @@ class Problem:
     c: float = 0.0
     """Coût de production unitaire."""
     K: float = 0.0
-    """Coût fixe de commande, prélevé dès que la quantité produite est > 0 (Étape 1.2)."""
+    """Coût de mise en route : payé à chaque redémarrage du serveur arrêté (cf. `mdp.T_switch`)."""
 
     # --- Inventaire ---
     h: float = 0.01
     """Coût de stockage unitaire par unité de temps (coût linéaire `h(x) = h·x`)."""
     b: float = 0.0
-    """Coût de pénurie unitaire par unité de temps, appliqué au backlog (Étape 1.3)."""
+    """Coût de pénurie unitaire par unité de temps, appliqué au backlog."""
     m_stock: int = 60
     """Troncature haute de l'espace d'état : niveau de stock maximum."""
     m_backlog: int = 0
@@ -92,7 +92,7 @@ class Problem:
     def two_env(cls, eps: float, q: float = 0.01, Lam_bar: float = 1.0, **kw) -> "Problem":
         """Cas à deux environnements du papier : `Λ_L = Λ̄ - ε`, `Λ_H = Λ̄ + ε`, `q_LH = q_HL = q`.
 
-        C'est le constructeur utilisé pour toute la validation de l'Étape 3.1.
+        C'est le constructeur utilisé pour toute la validation contre le papier.
         """
         return cls(
             Lam=(Lam_bar - eps, Lam_bar + eps),
@@ -199,7 +199,7 @@ class Problem:
         return 1.0 / (2.0 * self.a)
 
     def holding_cost(self, x):
-        """Coût instantané de détention : `h·x` si `x >= 0`, `b·|x|` si `x < 0` (Étape 1.3)."""
+        """Coût instantané de détention : `h·x` si `x >= 0`, `b·|x|` si `x < 0`."""
         x = np.asarray(x, dtype=float)
         return np.where(x >= 0, self.h * x, self.b * np.abs(x))
 

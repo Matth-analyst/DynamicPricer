@@ -1,4 +1,4 @@
-"""Analyse de sensibilité (Étape 4 de la spec).
+"""Analyse de sensibilité.
 
 Quatre volets :
 
@@ -11,7 +11,7 @@ Quatre volets :
 * Les **enseignements métier** qui s'en déduisent sont rédigés dans
   `notebooks/02_sensitivity.ipynb`.
 
-`python -m sensitivity` calcule tout et écrit `report/sensitivity_results.json`.
+`python -m dynamicpricer.sensitivity` calcule tout et écrit `report/sensitivity_results.json`.
 """
 
 from __future__ import annotations
@@ -23,14 +23,14 @@ from pathlib import Path
 
 import numpy as np
 
-import reference_gayon2009 as ref
-from metrics import profit_gain
-from mdp import solve_mdp
-from params import Problem
-from strategies import solve_all, solve_dp, solve_static
-from validation import _problem
+from . import reference_gayon2009 as ref
+from .metrics import profit_gain
+from .mdp import solve_mdp
+from .params import Problem
+from .strategies import solve_all, solve_dp, solve_static
+from .validation import reference_problem
 
-RESULTS_PATH = Path(__file__).resolve().parents[1] / "report" / "sensitivity_results.json"
+RESULTS_PATH = Path(__file__).resolve().parents[2] / "report" / "sensitivity_results.json"
 
 #: Valeur de `ε` autour de laquelle les balayages de `µ`, `h` et `q` sont centrés.
 #: Le papier retient 0.8 (§5.3.1) : c'est là que les stratégies se séparent le plus.
@@ -98,7 +98,7 @@ def sweep(param: str, values, eps: float = BASE_EPS) -> list[dict]:
     """
     rows = []
     for v in values:
-        pb = _problem(float(v)) if param == "eps" else _problem(eps, **{param: float(v)})
+        pb = reference_problem(float(v)) if param == "eps" else reference_problem(eps, **{param: float(v)})
         rows.append(_row(pb, param, v))
         _log(f"  balayage {param}={v} terminé")
     return rows

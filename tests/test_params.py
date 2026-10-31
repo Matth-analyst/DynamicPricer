@@ -1,9 +1,9 @@
-"""Tests de la dataclass `Problem` (Étape 0)."""
+"""Tests de la dataclass `Problem`."""
 
 import numpy as np
 import pytest
 
-from params import Problem
+from dynamicpricer.params import Problem
 
 
 def test_two_env_matches_paper_setup():

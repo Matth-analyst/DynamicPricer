@@ -1,4 +1,4 @@
-"""Validation contre le papier — Étape 3, « obligatoire, non négociable ».
+"""Validation contre le papier, puis cohérence interne des extensions.
 
 Ces tests portent la grille de prix complète de l'Appendix E (pas 0.01) sur les quatre
 instances de référence : ils prennent quelques minutes et sont donc marqués `slow`,
@@ -14,8 +14,8 @@ extensions n'ont pas de référence externe et sont traitées en fin de fichier.
 
 import pytest
 
-import reference_gayon2009 as ref
-import validation as V
+from dynamicpricer import reference_gayon2009 as ref
+from dynamicpricer import validation as V
 
 pytestmark = pytest.mark.slow
 
@@ -26,7 +26,7 @@ def solved():
 
 
 # ---------------------------------------------------------------------------
-# Étape 3.1 — validation externe
+# Validation externe
 # ---------------------------------------------------------------------------
 
 
@@ -55,10 +55,9 @@ def test_dp_price_ranges_match_except_two_documented_outliers(solved):
     """Table 5, stratégie DP : deux valeurs publiées restent en écart.
 
     `ε=0.6, p^dp_L = 0.33` (calculé 0.31) et `ε=0.8, p̄^dp_H = 0.99` (calculé 0.88).
-    La seconde rompt une progression que le solveur rend régulière
-    (`0.85 → 0.87 → 0.88 → 0.88`) alors que les autres valeurs DP à `ε = 0.8`
-    coïncident au centime près, et elle est insensible à la troncature comme à la
-    tolérance : le soupçon porte sur le papier. Ce test **fige l'écart** pour qu'une
+    Pour la seconde, la version de conférence de 2006 publie `0.88`, que le solveur retrouve
+    (`0.883`), et le solveur ne produit `0.99` pour aucun `ε` de 0.7 à 0.95 ; le résultat est
+    insensible à la troncature comme à la tolérance : le soupçon porte sur la version de revue. Ce test **fige l'écart** pour qu'une
     régression future du solveur ne passe pas inaperçue derrière lui.
     """
     rows = [r for r in V.compare_table_5(solved) if r["quantity"].startswith("p_dp")]
@@ -109,20 +108,20 @@ def test_figure_2_reproduces_the_published_shape():
 
 
 # ---------------------------------------------------------------------------
-# Étape 3.2 — cohérence interne des extensions (aucune référence publiée)
+# Cohérence interne des extensions (aucune référence publiée)
 # ---------------------------------------------------------------------------
 
 
 def test_extensions_pass_their_limit_cases():
     """`N>2`, `K>0` et backlog : cas limites, pas reproduction de résultats publiés.
 
-    C'est une validation **plus faible** que celle de l'Étape 3.1, et le rapport doit
+    C'est une validation **plus faible** que la validation externe, et le rapport doit
     la présenter comme telle : elle atteste la cohérence interne du solveur, pas la
     correction du modèle vis-à-vis d'une source externe.
     """
     tolerances = {
         "N>2 : H dédoublé reproduit N=2": 1e-6,
-        "K=0 : le modèle à mise en route redonne l'Étape 1.1": 1e-9,
+        "K=0 : le modèle à mise en route redonne le modèle de base": 1e-9,
         "b→∞ : le backlog converge vers lost sales": 1e-6,
     }
     for row in V.extension_checks():

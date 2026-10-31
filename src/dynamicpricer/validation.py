@@ -1,15 +1,15 @@
-"""Validation du solveur (Étape 3 de la spec).
+"""Validation du solveur.
 
 Deux volets, de statut épistémique très différent :
 
-* **3.1 — validation externe.** Le cœur du modèle (`N=2`, `K=0`, lost sales) est
+* **Validation externe.** Le cœur du modèle (`N=2`, `K=0`, lost sales) est
   confronté aux Tables 3 à 5 et à la Figure 2 du papier. C'est la seule partie du
   projet dont la correction est attestée par une source publiée.
-* **3.2 — cohérence interne.** Les extensions (`N>2`, `K>0`, backlog) n'ont aucune
+* **Cohérence interne.** Les extensions (`N>2`, `K>0`, backlog) n'ont aucune
   référence à reproduire. Elles sont vérifiées par des cas limites et des propriétés
   structurelles, ce qui est plus faible et doit être présenté comme tel.
 
-`python -m validation` calcule tout et écrit `report/validation_results.json`, que le
+`python -m dynamicpricer.validation` calcule tout et écrit `report/validation_results.json`, que le
 notebook `01_validation.ipynb` relit sans tout recalculer.
 """
 
@@ -20,22 +20,21 @@ from pathlib import Path
 
 import numpy as np
 
-import reference_gayon2009 as ref
-from metrics import check_ordering, dp_price_range, profit_gain
-from mdp import solve_mdp
-from params import Problem
-from strategies import (
-    _demand_from_prices,
-    _price_vector_grid,
-    _single_price_grid,
-    _sweep,
+from . import reference_gayon2009 as ref
+from .metrics import check_ordering, dp_price_range, profit_gain
+from .mdp import solve_mdp
+from .params import Problem
+from .strategies import (
+    price_vector_grid,
+    single_price_grid,
+    price_sweep,
     solve_all,
     solve_dp,
     solve_edp,
     solve_static_pricing,
 )
 
-RESULTS_PATH = Path(__file__).resolve().parents[1] / "report" / "validation_results.json"
+RESULTS_PATH = Path(__file__).resolve().parents[2] / "report" / "validation_results.json"
 
 #: Tolérance sur les profit gains, en points de pourcentage.
 #: Le papier ne publie qu'une décimale, donc son propre arrondi vaut déjà ±0.05 point.
@@ -45,7 +44,7 @@ PG_TOLERANCE_PP = 0.3
 PRICE_TOLERANCE = 0.015
 
 
-def _problem(eps: float, **kw) -> Problem:
+def reference_problem(eps: float, **kw) -> Problem:
     """Instance de référence du papier (§5.3) pour une variabilité `ε` donnée."""
     p = dict(ref.BASE_PARAMS)
     p.update(kw)
@@ -53,13 +52,13 @@ def _problem(eps: float, **kw) -> Problem:
 
 
 # ---------------------------------------------------------------------------
-# Étape 3.1 — validation externe contre le papier
+# Validation externe contre le papier
 # ---------------------------------------------------------------------------
 
 
 def solve_reference_instances(eps_values=ref.EPSILONS) -> dict:
     """Résout les cinq stratégies pour chaque `ε` de la Table 3."""
-    return {eps: solve_all(_problem(eps)) for eps in eps_values}
+    return {eps: solve_all(reference_problem(eps)) for eps in eps_values}
 
 
 def compare_table_3(solved: dict) -> list[dict]:
@@ -96,7 +95,7 @@ def compare_table_5(solved: dict, eps_values=ref.EPSILONS) -> list[dict]:
     """Prix optimaux calculés vs publiés (Table 5).
 
     Pour DP, on rapporte l'intervalle `(p_e, p̄_e)` sur les **états récurrents**, comme
-    la légende de la Table 5 le prescrit.
+    la légende de la Table 5 l'indique.
     """
     rows = []
     for eps, sols in solved.items():
@@ -133,11 +132,11 @@ def figure_2_data(mu_values=None, eps: float = 0.8) -> list[dict]:
         mu_values = np.round(np.arange(0.01, 0.97, 0.05), 3)
     rows = []
     for mu in mu_values:
-        pb = _problem(eps, mu=float(mu))
-        single, vector = _single_price_grid(pb), _price_vector_grid(pb)
+        pb = reference_problem(eps, mu=float(mu))
+        single, vector = single_price_grid(pb), price_vector_grid(pb)
         g = {
-            "sp": solve_static_pricing(pb, _sweep(pb, single)).g,
-            "edp": solve_edp(pb, _sweep(pb, vector)).g,
+            "sp": solve_static_pricing(pb, price_sweep(pb, single)).g,
+            "edp": solve_edp(pb, price_sweep(pb, vector)).g,
             "dp": solve_dp(pb).g,
         }
         rows.append(
@@ -153,7 +152,7 @@ def structural_properties(solved: dict) -> list[dict]:
     """Propriétés qualitatives attendues (§4 et §5.3.2), sur chaque instance."""
     rows = []
     for eps, sols in solved.items():
-        pb = _problem(eps)
+        pb = reference_problem(eps)
         dp = sols["dp"]
         v = solve_mdp(pb).v
         rows.append(dict(
@@ -202,11 +201,10 @@ def _common_base_stock_note(sols) -> str:
         if sols[n].base_stock[0] > sols["dp"].base_stock[0]
     ]
     return "; ".join(violations) if violations else "s^s, s^sb <= s^dp_L"
-    return rows
 
 
 # ---------------------------------------------------------------------------
-# Étape 3.2 — cohérence interne des extensions
+# Cohérence interne des extensions
 # ---------------------------------------------------------------------------
 
 
@@ -239,7 +237,7 @@ def extension_checks() -> list[dict]:
     plain = solve_mdp(pb, method="vi")
     augmented = solve_mdp(pb, force_setup_model=True)
     rows.append(dict(
-        case="K=0 : le modèle à mise en route redonne l'Étape 1.1",
+        case="K=0 : le modèle à mise en route redonne le modèle de base",
         computed=round(augmented.g, 12), reference=round(plain.g, 12),
         gap=round(abs(augmented.g - plain.g), 12),
         detail=f"bande={augmented.sS} vs base-stock={plain.base_stock}",

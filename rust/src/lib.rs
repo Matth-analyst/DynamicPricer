@@ -1,8 +1,9 @@
-//! Moteur de calcul natif pour DynamicPricer — balayage de prix à prix fixés.
+//! Moteur de calcul natif pour DynamicPricer.
 //!
-//! Ce module ne réimplémente pas tout le solveur : il ne prend en charge que le
-//! **poste dominant**, le balayage `(1/pas)^N` de la stratégie EDP. Une résolution
-//! isolée coûte 17 ms côté Python et n'a aucun intérêt à être portée.
+//! Ce module ne réimplémente pas tout le solveur : il porte deux noyaux coûteux, le
+//! balayage de prix `(1/pas)^N` (stratégies SP et EDP) et la recherche du seuil commun
+//! (stratégies S et SB). Une résolution isolée coûte 17 ms côté Python et n'a aucun
+//! intérêt à être portée.
 //!
 //! Deux leviers, dans cet ordre d'importance.
 //!
@@ -21,7 +22,7 @@
 //! **2. Parallélisme.** Les instances du balayage sont indépendantes : `rayon` les
 //! répartit sur les cœurs disponibles.
 //!
-//! La sémantique reproduit exactement celle de `src/mdp.py` — mêmes opérateurs, même
+//! La sémantique reproduit exactement celle de `src/dynamicpricer/mdp/` — mêmes opérateurs, même
 //! règle d'amélioration, même critère d'arrêt — pour que le test d'équivalence ait un
 //! sens. Le modèle à coût de mise en route (`K > 0`, état augmenté `σ`) n'est **pas**
 //! couvert ici : il reste traité côté Python.

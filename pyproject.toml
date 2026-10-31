@@ -1,10 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynamicpricer"
+version = "0.1.0"
+description = "Tarification dynamique et production sous demande fluctuante : solveur MDP Python/Rust"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.31", "pandas>=2.1", "matplotlib>=3.8"]
+notebooks = ["jupyter>=1.0", "pandas>=2.1", "matplotlib>=3.8"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
+# Permet de lancer `pytest` depuis un clone neuf, sans installation préalable.
 pythonpath = ["src"]
 testpaths = ["tests"]
-# La validation contre le papier (Étape 3) porte la grille de prix complète sur quatre
-# instances : quelques minutes. Elle est donc exclue par défaut et se lance par
-# `pytest -m slow`.
+# La validation contre le papier porte la grille de prix complète sur quatre instances :
+# quelques minutes en Python pur. Elle est exclue par défaut et se lance par `pytest -m slow`.
 addopts = "-m 'not slow'"
 markers = [
-    "slow: validation contre les valeurs publiées (Étape 3), lente par nature",
+    "slow: validation contre les valeurs publiées, lente par nature",
 ]

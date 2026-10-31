@@ -1,9 +1,9 @@
-"""Tests du solveur MDP (Étape 1 de la spec)."""
+"""Tests du solveur MDP."""
 
 import numpy as np
 import pytest
 
-from mdp import (
+from dynamicpricer.mdp import (
     T0_unit,
     T_produce,
     T_switch,
@@ -13,10 +13,10 @@ from mdp import (
     env_matrix,
     solve_mdp,
 )
-from params import Problem
+from dynamicpricer.params import Problem
 
 # ---------------------------------------------------------------------------
-# Étape 1.1 — opérateurs
+# Modèle de base — opérateurs
 # ---------------------------------------------------------------------------
 
 
@@ -103,12 +103,12 @@ def test_dynamic_price_menu_is_restricted_to_the_menu():
 
 
 # ---------------------------------------------------------------------------
-# Étape 1.1 — value iteration et propriétés structurelles
+# Modèle de base — value iteration et propriétés structurelles
 # ---------------------------------------------------------------------------
 
 
 def test_single_environment_case_is_solvable():
-    """Cas trivial à un seul environnement (critère de sortie de l'Étape 1.1)."""
+    """Cas trivial à un seul environnement (cas de base du solveur)."""
     pb = Problem(Lam=(1.0,), Q=((0.0,),), m_stock=40)
     sol = solve_mdp(pb)
     assert sol.converged and sol.g > 0
@@ -162,12 +162,12 @@ def test_gain_is_insensitive_to_truncation():
 
 
 # ---------------------------------------------------------------------------
-# Étape 1.2 — coût fixe de mise en route du serveur
+# Modèle à mise en route — coût de redémarrage du serveur
 # ---------------------------------------------------------------------------
 
 
 def test_switch_operator_charges_K_only_when_restarting():
-    """`S f(x,e,σ) = max{f(x,e,0), f(x,e,1) - K·1{σ=0}}` (Étape 1.2)."""
+    """`S f(x,e,σ) = max{f(x,e,0), f(x,e,1) - K·1{σ=0}}`."""
     pb = Problem.two_env(eps=0.6, K=0.5, m_stock=5)
     rng = np.random.default_rng(4)
     f = rng.normal(size=(pb.states.size, pb.N, 2))
@@ -190,8 +190,8 @@ def test_production_operator_only_advances_the_running_slice():
     assert out[-1, :, 1] == pytest.approx(f[-1, :, 1])  # troncature : pas de production
 
 
-def test_setup_model_with_K_zero_reproduces_step_1_1_exactly():
-    """Non-régression de l'Étape 1.2 : `K = 0` redonne **exactement** l'Étape 1.1.
+def test_setup_model_with_K_zero_reproduces_base_model_exactly():
+    """Non-régression : `K = 0` redonne **exactement** le modèle de base.
 
     Avec `K = 0`, `T_switch` devient `max{inner(·,0), inner(·,1)}`, ce qui reconstitue
     littéralement `max{f(x,e), f(x+1,e) - c}` : la réduction est exacte, pas approchée.
@@ -206,7 +206,7 @@ def test_setup_model_with_K_zero_reproduces_step_1_1_exactly():
 
 
 def test_positive_setup_cost_yields_a_hysteresis_band():
-    """Étape 1.2 : deux seuils par environnement, avec `s_e <= S_e`."""
+    """Avec `K > 0` : deux seuils par environnement, avec `s_e <= S_e`."""
     sol = solve_mdp(Problem.two_env(eps=0.6, K=0.5, m_stock=120, tol=1e-9))
     assert sol.base_stock is None and sol.sS is not None
     for s_e, S_e in sol.sS:
@@ -225,8 +225,8 @@ def test_band_widens_and_profit_falls_as_the_setup_cost_rises():
 
 
 def test_non_monotone_d_is_reported_rather_than_silently_accepted():
-    """L'Étape 1.2 demande de *constater* la structure en bande, pas de la supposer."""
-    from mdp import extract_setup_policy
+    """La structure en bande est *constatée*, pas supposée : sinon, erreur explicite."""
+    from dynamicpricer.mdp import extract_setup_policy
 
     pb = Problem.two_env(eps=0.6, K=0.5, m_stock=5)
     d = np.tile(np.array([0.9, 0.1, 0.8, 0.05, 0.0, -0.5])[:, None], (1, pb.N))
@@ -241,16 +241,16 @@ def test_threshold_outside_the_grid_is_reported():
 
 
 # ---------------------------------------------------------------------------
-# Étape 1.3 — backlog
+# Backlog
 # ---------------------------------------------------------------------------
 
 
 def test_large_backlog_penalty_converges_to_lost_sales():
-    """Étape 1.3 : `b → ∞` doit redonner exactement le comportement lost-sales.
+    """`b → ∞` doit redonner exactement le comportement lost-sales.
 
     Sous DP, une pénurie très coûteuse pousse le prix au prix d'étranglement `1/a`
     en `x = 0`, donc `λ = 0` : le stock ne descend jamais sous zéro et le modèle
-    coïncide avec celui de l'Étape 1.1.
+    coïncide avec le modèle de base.
     """
     ref = solve_mdp(Problem.two_env(eps=0.6, m_stock=60, tol=1e-9))
     backlog = solve_mdp(
@@ -296,7 +296,7 @@ def test_backlog_penalty_lowers_the_average_profit():
 
 
 # ---------------------------------------------------------------------------
-# Étape 2 — résolution en lot et évaluation exacte
+# Résolution en lot et évaluation exacte
 # ---------------------------------------------------------------------------
 
 
@@ -307,7 +307,7 @@ def test_exact_evaluation_agrees_with_value_iteration():
     le générateur en temps continu. Leur accord valide simultanément l'uniformisation,
     la normalisation du gain et la construction du générateur.
     """
-    from mdp import average_profit
+    from dynamicpricer.mdp import average_profit
 
     pb = Problem.two_env(eps=0.6, m_stock=60, tol=1e-10)
     for lam in ([0.25, 0.6], [0.1, 0.9], [0.35, 0.35]):
@@ -319,7 +319,7 @@ def test_exact_evaluation_agrees_with_value_iteration():
 
 def test_exact_evaluation_is_maximised_at_the_optimal_base_stock():
     """La politique issue de la value iteration doit battre tous les autres seuils."""
-    from mdp import average_profit
+    from dynamicpricer.mdp import average_profit
 
     pb = Problem.two_env(eps=0.6, m_stock=40, tol=1e-10)
     lam = np.array([0.25, 0.6])
@@ -331,7 +331,7 @@ def test_exact_evaluation_is_maximised_at_the_optimal_base_stock():
 
 def test_batch_solver_matches_the_single_solve():
     """`solve_batch` doit reproduire `solve_mdp` sur chaque élément du lot."""
-    from mdp import solve_batch
+    from dynamicpricer.mdp import solve_batch
 
     pb = Problem.two_env(eps=0.6, m_stock=40)
     lams = np.array([[0.25, 0.1, 0.35], [0.6, 0.9, 0.35]])  # (N, B)
@@ -346,7 +346,7 @@ def test_batch_solver_matches_the_single_solve():
 
 
 def test_batch_solver_refuses_the_setup_cost_model():
-    from mdp import solve_batch
+    from dynamicpricer.mdp import solve_batch
 
     pb = Problem.two_env(eps=0.6, K=0.5, m_stock=40)
     with pytest.raises(ValueError, match="K = 0"):
@@ -360,7 +360,7 @@ def test_policy_iteration_agrees_with_value_iteration():
     l'équation d'évaluation au lieu de l'approcher — donc l'écart attendu est borné
     par la tolérance de la *value iteration*, pas par zéro.
     """
-    from mdp import solve_batch, solve_batch_vi
+    from dynamicpricer.mdp import solve_batch, solve_batch_vi
 
     pb = Problem.two_env(eps=0.6, m_stock=40)
     lams = np.array([[0.25, 0.1, 0.35], [0.6, 0.9, 0.35]])
@@ -373,7 +373,7 @@ def test_policy_iteration_agrees_with_value_iteration():
 
 def test_policy_iteration_matches_the_exact_evaluator():
     """Le gain rendu doit être celui de la politique rendue, au chiffre près."""
-    from mdp import average_profit, solve_batch
+    from dynamicpricer.mdp import average_profit, solve_batch
 
     pb = Problem.two_env(eps=0.6, m_stock=40)
     lams = np.array([[0.25, 0.1], [0.6, 0.9]])

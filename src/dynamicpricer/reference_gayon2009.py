@@ -1,11 +1,12 @@
 """Valeurs publiées de Gayon, Talay-Değirmenci, Karaesmen & Örmeci (2009).
 
 Transcrites depuis la version HAL du papier (hal-00363686), Tables 2 à 5 et §5.2.1.
-Servent de référence à l'Étape 3.1 de la spec (écart toléré : 1-2 %).
+Servent de référence à la validation externe (tolérances : `validation.PG_TOLERANCE_PP`
+et `validation.PRICE_TOLERANCE`).
 
 Ces valeurs ne couvrent **que** le cœur du modèle : `N=2`, `K=0`, lost sales.
 Les extensions (`N>2`, `K>0`, backlog) n'ont pas de référence publiée et sont
-validées par cohérence interne (Étape 3.2).
+validées par cohérence interne.
 """
 
 # ---------------------------------------------------------------------------
@@ -77,6 +78,7 @@ TABLE_5 = {
     0.6: {"s": 0.74, "sb": (0.65, 0.83), "sp": 0.75, "edp": (0.65, 0.84),
           "dp": {"L": (0.33, 0.75), "H": (0.51, 0.88)}},
     0.8: {"s": 0.75, "sb": (0.55, 0.84), "sp": 0.78, "edp": (0.57, 0.84),
+          # p̄^dp_H = 0.99 tel que publié en 2009 ; la version de conférence de 2006 donne 0.88.
           "dp": {"L": (0.19, 0.65), "H": (0.51, 0.99)}},
 }
 

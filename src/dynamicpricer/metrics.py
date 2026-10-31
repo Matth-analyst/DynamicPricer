@@ -1,8 +1,4 @@
-"""Métriques de comparaison entre stratégies (§5.1 du papier).
-
-Statut : `profit_gain` est implémenté (formule triviale et utilisée partout) ;
-le reste attend l'Étape 3.
-"""
+"""Métriques de comparaison entre stratégies (§5.1 du papier)."""
 
 from __future__ import annotations
 
