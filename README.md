@@ -1,3 +1,5 @@
+**Français** · [English](README.en.md)
+
 # DynamicPricer
 
 Solveur et étude numérique des politiques conjointes de tarification et de production
@@ -253,6 +255,10 @@ Tableau de bord interactif :
 streamlit run dashboard/app.py
 ```
 
+L'interface est disponible en **français et en anglais** : un sélecteur en haut de la barre
+latérale change la langue sans perdre les paramètres ni les résultats déjà calculés. Par
+défaut, la langue du navigateur est utilisée.
+
 Curseurs sur $\mu$, $h$, $\varepsilon$, $q$, $a$, ainsi que sur $N$, le coût de mise en route et le
 backlog. Cinq onglets : comparaison des cinq stratégies, niveaux de stock et courbe de prix,
 recommandation rédigée à partir des valeurs calculées, formulation mathématique du modèle,
@@ -295,6 +301,7 @@ dynamicpricer/
 │   ├── validation.py            # comparaison aux tables publiées
 │   ├── sensitivity.py           # balayages de µ, h, ε, q et menus de prix
 │   ├── native.py                # chargement optionnel du moteur Rust
+│   ├── ui_texts.py              # textes du tableau de bord (français / anglais)
 │   └── reference_gayon2009.py   # valeurs publiées, transcrites de la source
 ├── rust/                        # moteur natif : balayage de prix et seuil commun
 ├── notebooks/

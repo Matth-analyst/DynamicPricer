@@ -24,8 +24,8 @@ from pathlib import Path
 import numpy as np
 
 from . import reference_gayon2009 as ref
-from .metrics import profit_gain
 from .mdp import solve_mdp
+from .metrics import profit_gain
 from .params import Problem
 from .strategies import solve_all, solve_dp, solve_static
 from .validation import reference_problem

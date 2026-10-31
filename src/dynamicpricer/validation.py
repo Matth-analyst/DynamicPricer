@@ -21,13 +21,13 @@ from pathlib import Path
 import numpy as np
 
 from . import reference_gayon2009 as ref
-from .metrics import check_ordering, dp_price_range, profit_gain
 from .mdp import solve_mdp
+from .metrics import check_ordering, dp_price_range, profit_gain
 from .params import Problem
 from .strategies import (
+    price_sweep,
     price_vector_grid,
     single_price_grid,
-    price_sweep,
     solve_all,
     solve_dp,
     solve_edp,

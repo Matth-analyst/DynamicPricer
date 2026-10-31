@@ -7,7 +7,12 @@
 * `dynamic_pricing` : itération sur les politiques pour la stratégie DP.
 """
 
-from .batch import average_profit, solve_batch, solve_batch_truncated_python, solve_batch_vi
+from .batch import (
+    average_profit,
+    solve_batch,
+    solve_batch_truncated_python,
+    solve_batch_vi,
+)
 from .operators import T2, T0_unit, T_dynamic, T_produce, T_switch, Tlam, env_matrix
 from .policies import base_stock_levels, extract_base_stock, extract_setup_policy
 from .value_iteration import MDPSolution, solve_mdp

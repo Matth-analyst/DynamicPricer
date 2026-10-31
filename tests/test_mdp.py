@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 from dynamicpricer.mdp import (
+    T2,
     T0_unit,
+    T_dynamic,
     T_produce,
     T_switch,
-    T2,
-    T_dynamic,
     Tlam,
     env_matrix,
     solve_mdp,

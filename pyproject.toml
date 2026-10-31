@@ -12,7 +12,7 @@ license = { text = "MIT" }
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
-dashboard = ["streamlit>=1.31", "pandas>=2.1", "matplotlib>=3.8"]
+dashboard = ["streamlit>=1.51", "pandas>=2.1", "matplotlib>=3.8"]
 notebooks = ["jupyter>=1.0", "pandas>=2.1", "matplotlib>=3.8"]
 dev = ["pytest>=8.0", "pytest-cov", "ruff"]
 
