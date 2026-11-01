@@ -130,7 +130,7 @@ st.caption(T("app.caption"))
 
 sb = st.sidebar
 sb.header(T("sb.system"))
-N = sb.number_input(T("sb.N"), 2, 4, 2, key="w_N")
+N = sb.number_input(T("sb.N"), min_value=2, value=2, step=1, key="w_N")
 eps = sb.slider(T("sb.eps"), 0.0, 0.9, 0.8, 0.05, key="w_eps")
 mu = sb.slider(T("sb.mu"), 0.01, 1.0, 0.11, 0.01, key="w_mu")
 h = sb.slider(T("sb.h"), 0.001, 0.10, 0.01, 0.001, format="%.3f", key="w_h")
