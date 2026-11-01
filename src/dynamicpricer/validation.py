@@ -186,9 +186,9 @@ def _common_base_stock_note(sols) -> str:
     """Compare le seuil commun de S/SB au base-stock DP de l'environnement bas.
 
     Le papier énonce `s^φ_e <= s^dp_e` pour `φ = s, sb, sp, edp` (§5.3.2), mais sa
-    **propre Table 4** contredit cette affirmation à `ε = 0.8` : elle y publie
-    `s^sb = 4` et `s^dp_L = 3`. Ce n'est pas une erreur du solveur, qui reproduit ces
-    deux valeurs exactement — c'est une inexactitude du texte du papier.
+    **propre Table 4** fait exception à `ε = 0.8` : elle y publie `s^sb = 4` et
+    `s^dp_L = 3`. Ce n'est pas une erreur du solveur, qui reproduit ces deux valeurs
+    exactement : l'observation du texte admet une exception.
 
     L'explication est simple : S et SB n'ont qu'un seuil, compromis entre les
     environnements, qui n'a pas de raison de rester sous le seuil que DP retient dans

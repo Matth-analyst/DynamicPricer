@@ -57,7 +57,7 @@ def test_dp_price_ranges_match_except_two_documented_outliers(solved):
     `ε=0.6, p^dp_L = 0.33` (calculé 0.31) et `ε=0.8, p̄^dp_H = 0.99` (calculé 0.88).
     Pour la seconde, la version de conférence de 2006 publie `0.88`, que le solveur retrouve
     (`0.883`), et le solveur ne produit `0.99` pour aucun `ε` de 0.7 à 0.95 ; le résultat est
-    insensible à la troncature comme à la tolérance : le soupçon porte sur la version de revue. Ce test **fige l'écart** pour qu'une
+    insensible à la troncature comme à la tolérance : la divergence est à clarifier auprès des auteurs. Ce test **fige l'écart** pour qu'une
     régression future du solveur ne passe pas inaperçue derrière lui.
     """
     rows = [r for r in V.compare_table_5(solved) if r["quantity"].startswith("p_dp")]

@@ -168,17 +168,17 @@ sensiblement plus faible.
 
 ### Écarts relevés dans la source
 
-La fidélité de la reproduction a permis d'identifier trois points sur lesquels le papier
-est imprécis ou contredit par ses propres données. Les trois sont figés dans la suite de
-tests, de sorte qu'une évolution du solveur les ferait apparaître plutôt que de les
+La reproduction fait apparaître trois points sur lesquels les valeurs ou le texte publiés
+diffèrent des résultats du solveur, ou d'eux-mêmes. Leur interprétation reste à clarifier
+auprès des auteurs. Les trois sont figés dans la suite de tests, de sorte qu'une évolution du solveur les ferait apparaître plutôt que de les
 dissimuler dans une tolérance élargie.
 
 1. Le paragraphe 5.3.2 observe, « dans toutes les expériences », que
    $s(\varphi,e) \leq s(\text{dp},e)$ pour
    $\varphi \in \{\text{s}, \text{sb}, \text{sp}, \text{edp}\}$. La Table 4 du même article
    publie pourtant $s(\text{sb}) = 4$ et $s(\text{dp},L) = 3$ à $\varepsilon = 0{,}8$. Le
-   solveur reproduit ces deux valeurs exactement : la contradiction est dans le texte. La
-   propriété n'est bien posée que pour SP et EDP, dont le base-stock dépend du régime ; S et
+   solveur reproduit ces deux valeurs exactement : l'écart ne vient pas du calcul. La
+   propriété n'est naturelle que pour SP et EDP, dont le base-stock dépend du régime ; S et
    SB n'en ont qu'un, compromis entre les régimes, qui n'a pas de raison de rester sous le
    seuil retenu par DP dans le régime le plus faible.
 2. Table 5, $\varepsilon = 0{,}6$ : $p(\text{dp},L)$ publié à 0,33, calculé à 0,31. La valeur

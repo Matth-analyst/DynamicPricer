@@ -163,16 +163,17 @@ checked through limiting cases, which is a markedly weaker guarantee.
 
 ### Discrepancies found in the source
 
-The fidelity of the reproduction made it possible to identify three points on which the paper
-is imprecise or contradicted by its own data. All three are frozen in the test suite, so that
+The reproduction brings out three points on which the published values or text differ from the
+solver's results, or from themselves. Their interpretation remains to be clarified with the
+authors. All three are frozen in the test suite, so that
 a change in the solver would bring them to light rather than hide them in a widened tolerance.
 
 1. Section 5.3.2 observes, "in all experiments", that
    $s(\varphi,e) \leq s(\text{dp},e)$ for
    $\varphi \in \{\text{s}, \text{sb}, \text{sp}, \text{edp}\}$. Yet Table 4 of the same
    article publishes $s(\text{sb}) = 4$ and $s(\text{dp},L) = 3$ at $\varepsilon = 0.8$. The
-   solver reproduces these two values exactly: the contradiction lies in the text. The
-   property is well posed only for SP and EDP, whose base-stock depends on the regime; S and
+   solver reproduces these two values exactly: the gap does not come from the
+   computation. The property is natural only for SP and EDP, whose base-stock depends on the regime; S and
    SB have a single one, a compromise between regimes, which has no reason to stay below the
    threshold chosen by DP in the weakest regime.
 2. Table 5, $\varepsilon = 0.6$: $p(\text{dp},L)$ published as 0.33, computed as 0.31. The
